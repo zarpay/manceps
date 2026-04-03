@@ -2,26 +2,38 @@ module Manceps
   class Client
     attr_reader :session
 
-    def initialize(url_or_command, auth: Auth::None.new, args: nil, env: nil, **options)
+    def initialize(url_or_command, auth: Auth::None.new, args: nil, env: nil, max_retries: 3, **options)
       if args || !url_or_command.match?(/\Ahttps?:\/\//i)
         @transport = Transport::Stdio.new(url_or_command, args: args || [], env: env || {})
       else
         @transport = Transport::StreamableHTTP.new(url_or_command, auth: auth, timeout: options[:timeout])
       end
       @session = Session.new
+      @max_retries = max_retries
+      @backoff = Backoff.new
+      @notification_handlers = Hash.new { |h, k| h[k] = [] }
     end
 
     def connect
-      @transport.open if @transport.respond_to?(:open)
+      attempts = 0
+      begin
+        @transport.open if @transport.respond_to?(:open)
 
-      init_response = @transport.request(
-        JsonRpc.initialize_request(@session.next_id)
-      )
-      handle_rpc_error(init_response)
-      @session.establish(init_response)
+        init_response = @transport.request(
+          JsonRpc.initialize_request(@session.next_id)
+        )
+        handle_rpc_error(init_response)
+        @session.establish(init_response)
 
-      @transport.notify(JsonRpc.initialized_notification)
-      self
+        @transport.notify(JsonRpc.initialized_notification)
+        @backoff.reset
+        self
+      rescue ConnectionError, TimeoutError => e
+        attempts += 1
+        raise if attempts > @max_retries
+        sleep @backoff.next_delay
+        retry
+      end
     end
 
     def disconnect
@@ -34,12 +46,25 @@ module Manceps
       @session.active?
     end
 
-    def tools
-      paginate("tools/list", "tools") { |data| Tool.new(data) }
+    def reconnect!
+      @transport.close
+      @session.reset
+      connect
+    end
+
+    def ping
+      @transport.notify(JsonRpc.notification("ping"))
+      true
+    rescue ConnectionError, TimeoutError
+      false
+    end
+
+    def tools(force: false)
+      paginate_with_retry("tools/list", "tools") { |data| Tool.new(data) }
     end
 
     def call_tool(name, **arguments)
-      response = request("tools/call", name: name, arguments: arguments)
+      response = request_with_retry("tools/call", name: name, arguments: arguments)
       ToolResult.new(response["result"])
     end
 
@@ -50,26 +75,60 @@ module Manceps
       ToolResult.new(response["result"])
     end
 
-    def prompts
-      paginate("prompts/list", "prompts") { |data| Prompt.new(data) }
+    def prompts(force: false)
+      paginate_with_retry("prompts/list", "prompts") { |data| Prompt.new(data) }
     end
 
     def get_prompt(name, **arguments)
-      response = request("prompts/get", name: name, arguments: arguments)
+      response = request_with_retry("prompts/get", name: name, arguments: arguments)
       PromptResult.new(response["result"])
     end
 
-    def resources
-      paginate("resources/list", "resources") { |data| Resource.new(data) }
+    def resources(force: false)
+      paginate_with_retry("resources/list", "resources") { |data| Resource.new(data) }
     end
 
     def resource_templates
-      paginate("resources/templates/list", "resourceTemplates") { |data| ResourceTemplate.new(data) }
+      paginate_with_retry("resources/templates/list", "resourceTemplates") { |data| ResourceTemplate.new(data) }
     end
 
     def read_resource(uri)
-      response = request("resources/read", uri: uri)
+      response = request_with_retry("resources/read", uri: uri)
       ResourceContents.new(response["result"])
+    end
+
+    def on(method, &block)
+      @notification_handlers[method] << block
+    end
+
+    def subscribe_resource(uri)
+      request("resources/subscribe", uri: uri)
+    end
+
+    def unsubscribe_resource(uri)
+      request("resources/unsubscribe", uri: uri)
+    end
+
+    def cancel_request(request_id, reason: nil)
+      params = { requestId: request_id }
+      params[:reason] = reason if reason
+      @transport.notify(JsonRpc.notification("notifications/cancelled", params))
+    end
+
+    def listen
+      @transport.listen do |notification|
+        method = notification["method"]
+        params = notification["params"]
+        handlers = @notification_handlers[method]
+        handlers.each { |h| h.call(params) } if handlers
+      end
+    end
+
+    def batch
+      b = Batch.new(self)
+      yield b
+      b.execute
+      b
     end
 
     def self.open(url, **options)
@@ -82,6 +141,10 @@ module Manceps
 
     private
 
+    def transport_batch_request(batch_body)
+      @transport.request(batch_body)
+    end
+
     MAX_PAGES = 100
 
     def request(method, **params)
@@ -89,6 +152,13 @@ module Manceps
       response = @transport.request(body)
       handle_rpc_error(response)
       response
+    end
+
+    def request_with_retry(method, **params)
+      request(method, **params)
+    rescue SessionExpiredError
+      reconnect!
+      request(method, **params)
     end
 
     def paginate(method, items_key)
@@ -108,6 +178,13 @@ module Manceps
       end
 
       results
+    end
+
+    def paginate_with_retry(method, items_key, &block)
+      paginate(method, items_key, &block)
+    rescue SessionExpiredError
+      reconnect!
+      paginate(method, items_key, &block)
     end
 
     def handle_rpc_error(response)

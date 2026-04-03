@@ -227,11 +227,60 @@ end
 
 **Extracted from production.** The protocol handling and OAuth flows come from [Agora](https://github.com/zarpay/agentus), where MCP connections run under real load.
 
+## Notifications
+
+Register handlers for server-initiated messages:
+
+```ruby
+client.on("notifications/tools/list_changed") { puts "Tools changed!" }
+client.on("notifications/resources/updated") { |params| puts "Updated: #{params['uri']}" }
+
+# Subscribe to resource updates
+client.subscribe_resource("file:///project/config.yml")
+
+# Cancel a long-running request
+client.cancel_request(request_id, reason: "User cancelled")
+
+# Listen for notifications (blocking)
+client.listen  # dispatches to registered handlers
+```
+
+## Batch Requests
+
+Send multiple requests in a single round-trip:
+
+```ruby
+batch = client.batch do |b|
+  weather_id = b.call_tool("get_weather", location: "NYC")
+  readme_id = b.read_resource("file:///README.md")
+  review_id = b.get_prompt("code_review", code: "def hello; end")
+end
+
+batch[weather_id]  # => ToolResult
+batch[readme_id]   # => ResourceContents
+batch[review_id]   # => PromptResult
+```
+
+## Resilience
+
+Automatic retry with exponential backoff on connection failures:
+
+```ruby
+# Connect retries up to max_retries (default: 3)
+client = Manceps::Client.new("https://mcp.example.com/mcp", auth: auth, max_retries: 5)
+
+# Requests auto-retry once on session expiry (re-initializes session)
+client.call_tool("search", query: "test")  # retries transparently on 404
+
+# Check connection health
+client.ping  # => true/false
+
+# Manual reconnect
+client.reconnect!
+```
+
 ## Roadmap
 
-- **v0.5** -- Server-initiated messages (notifications, subscriptions)
-- **v0.6** -- Resumability and automatic reconnection
-- **v0.7** -- JSON-RPC batch requests
 - **v1.0** -- Protocol 2025-11-25 support, stable API
 
 ## License

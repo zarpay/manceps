@@ -13,6 +13,7 @@ module Manceps
         @stderr = nil
         @wait_thread = nil
         @mutex = Mutex.new
+        @notification_callback = nil
       end
 
       def open
@@ -38,6 +39,17 @@ module Manceps
 
       def terminate_session(_session_id)
         # No-op for stdio -- session ends when the process exits
+      end
+
+      def listen(&block)
+        raise ConnectionError, "Stdio transport not open" unless @stdout
+
+        loop do
+          line = @stdout.gets
+          break if line.nil?
+          parsed = JSON.parse(line) rescue next
+          block.call(parsed) if parsed["method"]
+        end
       end
 
       def close
@@ -77,10 +89,19 @@ module Manceps
       def read_response
         raise ConnectionError, "Stdio transport not open" unless @stdout
 
-        line = @stdout.gets
-        raise ConnectionError, "Process exited unexpectedly" if line.nil?
+        loop do
+          line = @stdout.gets
+          raise ConnectionError, "Process exited unexpectedly" if line.nil?
 
-        JSON.parse(line)
+          parsed = JSON.parse(line)
+
+          if parsed["method"] && !parsed.key?("id")
+            # This is a server-initiated notification; dispatch and keep reading
+            @notification_callback&.call(parsed)
+          else
+            return parsed
+          end
+        end
       rescue JSON::ParserError => e
         raise ProtocolError.new("Invalid JSON from process: #{e.message}")
       end

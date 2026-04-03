@@ -20,6 +20,14 @@ module Manceps
       def close
         raise NotImplementedError
       end
+
+      def listen(&block)
+        raise NotImplementedError
+      end
+
+      def on_notification(&block)
+        @notification_callback = block
+      end
     end
   end
 end

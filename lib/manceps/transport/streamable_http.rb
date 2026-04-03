@@ -8,6 +8,7 @@ module Manceps
         @url = url
         @auth = auth
         @session_id = nil
+        @last_event_id = nil
 
         timeout_opts = timeout || {
           connect_timeout: Manceps.configuration.connect_timeout,
@@ -21,13 +22,19 @@ module Manceps
 
       def request(body)
         response = @http.post(@url, headers: base_headers, body: JSON.generate(body))
+        handle_connection_error(response)
         handle_error_response(response)
         capture_session_id(response)
-        parse_response(response)
+        result = parse_response(response)
+        track_event_ids_from_response(response)
+        result
+      rescue Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH => e
+        raise ConnectionError, e.message
       end
 
       def request_streaming(body, &block)
         response = @http.post(@url, headers: base_headers, body: JSON.generate(body))
+        handle_connection_error(response)
         handle_error_response(response)
         capture_session_id(response)
 
@@ -35,6 +42,7 @@ module Manceps
 
         if content_type.include?("text/event-stream")
           events = SSEParser.parse_events(response.body.to_s)
+          track_event_ids(events)
           final_result = nil
           events.each do |event|
             parsed = JSON.parse(event[:data]) rescue next
@@ -52,7 +60,10 @@ module Manceps
 
       def notify(body)
         response = @http.post(@url, headers: base_headers, body: JSON.generate(body))
+        handle_connection_error(response)
         handle_error_response(response) unless response.status == 202
+      rescue Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH => e
+        raise ConnectionError, e.message
       end
 
       def terminate_session(session_id)
@@ -60,6 +71,24 @@ module Manceps
         headers["mcp-session-id"] = session_id
         @auth.apply(headers)
         @http.delete(@url, headers: headers) rescue nil # 405 is acceptable per spec
+      end
+
+      def listen(&block)
+        headers = base_headers.dup
+        headers.delete("content-type")
+        headers["accept"] = "text/event-stream"
+
+        response = @http.get(@url, headers: headers)
+        handle_error_response(response)
+
+        content_type = response.content_type.mime_type
+        return unless content_type.include?("text/event-stream")
+
+        events = SSEParser.parse_events(response.body.to_s)
+        events.each do |event|
+          parsed = JSON.parse(event[:data]) rescue next
+          block.call(parsed) if parsed["method"]
+        end
       end
 
       def close
@@ -75,6 +104,7 @@ module Manceps
           "accept" => "application/json, text/event-stream"
         }
         headers["mcp-session-id"] = @session_id if @session_id
+        headers["last-event-id"] = @last_event_id if @last_event_id
         @auth.apply(headers)
         headers
       end
@@ -93,6 +123,33 @@ module Manceps
       def capture_session_id(response)
         sid = response.headers["mcp-session-id"]
         @session_id = sid if sid
+      end
+
+      def track_event_ids(events)
+        last = events.select { |e| e[:id] }.last
+        @last_event_id = last[:id] if last
+      end
+
+      def track_event_ids_from_response(response)
+        content_type = response.content_type.mime_type
+        return unless content_type.include?("text/event-stream")
+
+        events = SSEParser.parse_events(response.body.to_s)
+        track_event_ids(events)
+      end
+
+      def handle_connection_error(response)
+        if response.is_a?(HTTPX::ErrorResponse)
+          error = response.error
+          case error
+          when Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH
+            raise ConnectionError, error.message
+          when HTTPX::TimeoutError
+            raise TimeoutError, error.message
+          else
+            raise ConnectionError, error.message
+          end
+        end
       end
 
       def handle_error_response(response)

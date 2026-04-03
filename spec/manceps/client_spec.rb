@@ -510,6 +510,380 @@ RSpec.describe Manceps::Client do
     end
   end
 
+  describe "#on" do
+    it "registers notification handlers" do
+      client = described_class.new(url, auth: auth)
+      received = []
+      client.on("notifications/tools/list_changed") { |params| received << params }
+
+      handlers = client.instance_variable_get(:@notification_handlers)
+      expect(handlers["notifications/tools/list_changed"].length).to eq(1)
+    end
+
+    it "allows multiple handlers for the same notification" do
+      client = described_class.new(url, auth: auth)
+      client.on("notifications/tools/list_changed") { }
+      client.on("notifications/tools/list_changed") { }
+
+      handlers = client.instance_variable_get(:@notification_handlers)
+      expect(handlers["notifications/tools/list_changed"].length).to eq(2)
+    end
+  end
+
+  describe "#subscribe_resource" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "sends resources/subscribe with the URI" do
+      sub_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "resources/subscribe",
+          "params" => hash_including("uri" => "file:///readme.md")
+        ))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 3, result: {} })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      client.subscribe_resource("file:///readme.md")
+
+      expect(sub_stub).to have_been_requested
+    end
+  end
+
+  describe "#unsubscribe_resource" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "sends resources/unsubscribe with the URI" do
+      unsub_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "resources/unsubscribe",
+          "params" => hash_including("uri" => "file:///readme.md")
+        ))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 3, result: {} })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      client.unsubscribe_resource("file:///readme.md")
+
+      expect(unsub_stub).to have_been_requested
+    end
+  end
+
+  describe "#cancel_request" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "sends notifications/cancelled with the request ID" do
+      cancel_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "notifications/cancelled",
+          "params" => hash_including("requestId" => 42)
+        ))
+        .to_return(status: 202)
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      client.cancel_request(42)
+
+      expect(cancel_stub).to have_been_requested
+    end
+
+    it "includes reason when provided" do
+      cancel_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "notifications/cancelled",
+          "params" => hash_including("requestId" => 42, "reason" => "User cancelled")
+        ))
+        .to_return(status: 202)
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      client.cancel_request(42, reason: "User cancelled")
+
+      expect(cancel_stub).to have_been_requested
+    end
+  end
+
+  describe "#listen" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "dispatches notifications to registered handlers" do
+      sse_body = <<~SSE
+        event: message
+        data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}
+
+        event: message
+        data: {"jsonrpc":"2.0","method":"notifications/resources/updated","params":{"uri":"file:///config.json"}}
+      SSE
+
+      stub_request(:get, url)
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "text/event-stream" },
+          body: sse_body
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      tools_changed = []
+      resources_updated = []
+      client.on("notifications/tools/list_changed") { |params| tools_changed << params }
+      client.on("notifications/resources/updated") { |params| resources_updated << params }
+
+      client.listen
+
+      expect(tools_changed.length).to eq(1)
+      expect(resources_updated.length).to eq(1)
+      expect(resources_updated.first).to eq({ "uri" => "file:///config.json" })
+    end
+  end
+
+  describe "#tools with force:" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "accepts force: true parameter" do
+      stub_tools_list(tools: [])
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect { client.tools(force: true) }.not_to raise_error
+    end
+  end
+
+  describe "#reconnect!" do
+    before do
+      stub_initialized_notification
+    end
+
+    it "closes transport, resets session, and re-initializes" do
+      init_stub = stub_initialize
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      # reconnect! should close, reset, and re-connect
+      client.reconnect!
+
+      # initialize should have been called twice (once for connect, once for reconnect)
+      expect(init_stub).to have_been_requested.times(2)
+    end
+
+    it "resets the session request counter" do
+      stub_initialize
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      # Advance the counter
+      3.times { client.session.next_id }
+
+      client.reconnect!
+
+      # After reconnect, counter should have been reset (1 used by connect's init request)
+      expect(client.session.next_id).to eq(2)
+    end
+  end
+
+  describe "#ping" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "returns true on success" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "ping"))
+        .to_return(status: 202)
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect(client.ping).to be true
+    end
+
+    it "returns false on ConnectionError" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      transport = client.instance_variable_get(:@transport)
+      allow(transport).to receive(:notify).and_raise(Manceps::ConnectionError, "gone")
+
+      expect(client.ping).to be false
+    end
+
+    it "returns false on TimeoutError" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      transport = client.instance_variable_get(:@transport)
+      allow(transport).to receive(:notify).and_raise(Manceps::TimeoutError, "timed out")
+
+      expect(client.ping).to be false
+    end
+  end
+
+  describe "session expiry retry" do
+    before do
+      stub_initialized_notification
+    end
+
+    it "retries request once on SessionExpiredError then succeeds" do
+      # First connect succeeds
+      stub_initialize
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      call_count = 0
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tools/list"))
+        .to_return do |_request|
+          call_count += 1
+          if call_count == 1
+            { status: 404, body: "Not Found" }
+          else
+            {
+              status: 200,
+              headers: { "Content-Type" => "application/json" },
+              body: JSON.generate({
+                jsonrpc: "2.0", id: 4,
+                result: { tools: [{ name: "retry_tool", description: "Works", inputSchema: { type: "object" } }] }
+              })
+            }
+          end
+        end
+
+      tools = client.tools
+
+      expect(tools.length).to eq(1)
+      expect(tools.first.name).to eq("retry_tool")
+    end
+
+    it "does NOT retry on second SessionExpiredError (prevents infinite loop)" do
+      stub_initialize
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      # All tools/list requests return 404
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tools/list"))
+        .to_return(status: 404, body: "Not Found")
+
+      expect { client.tools }.to raise_error(Manceps::SessionExpiredError)
+    end
+  end
+
+  describe "connect with retry" do
+    it "retries on ConnectionError up to max_retries" do
+      client = described_class.new(url, auth: auth, max_retries: 3)
+      transport = client.instance_variable_get(:@transport)
+
+      attempt = 0
+      allow(transport).to receive(:request) do |body|
+        attempt += 1
+        if attempt <= 2
+          raise Manceps::ConnectionError, "Connection refused"
+        else
+          JSON.parse(init_response_body)
+        end
+      end
+      allow(transport).to receive(:notify)
+      allow(client).to receive(:sleep)
+
+      client.connect
+
+      expect(attempt).to eq(3)
+    end
+
+    it "raises after max_retries exceeded" do
+      client = described_class.new(url, auth: auth, max_retries: 2)
+      transport = client.instance_variable_get(:@transport)
+
+      allow(transport).to receive(:request).and_raise(Manceps::ConnectionError, "Connection refused")
+      allow(client).to receive(:sleep)
+
+      expect { client.connect }.to raise_error(Manceps::ConnectionError)
+    end
+  end
+
+  describe "#batch" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "yields a Batch, executes it, and returns the Batch" do
+      stub_request(:post, url)
+        .with { |req| JSON.parse(req.body).is_a?(Array) }
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate([
+            { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "sunny" }] } }
+          ])
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      result = client.batch do |b|
+        b.call_tool("get_weather", location: "NYC")
+      end
+
+      expect(result).to be_a(Manceps::Batch)
+      expect(result.results.length).to eq(1)
+    end
+
+    it "makes batch results accessible after the block returns" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      # We need to capture the IDs inside the block, then check results outside
+      weather_id = nil
+
+      stub_request(:post, url)
+        .with { |req| JSON.parse(req.body).is_a?(Array) }
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate([
+            { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "rainy" }] } }
+          ])
+        )
+
+      batch = client.batch do |b|
+        weather_id = b.call_tool("get_weather", location: "London")
+      end
+
+      expect(batch[weather_id]).to be_a(Manceps::ToolResult)
+      expect(batch[weather_id].text).to eq("rainy")
+    end
+  end
+
   describe "transport selection" do
     it "uses StreamableHTTP for http:// URLs" do
       client = described_class.new("http://localhost:3000/mcp")

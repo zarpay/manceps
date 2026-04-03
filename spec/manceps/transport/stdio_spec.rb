@@ -135,6 +135,107 @@ RSpec.describe Manceps::Transport::Stdio do
     end
   end
 
+  describe "#read_response with interleaved notifications" do
+    let(:notification_then_response_script) do
+      <<~RUBY
+        require "json"
+        line = $stdin.gets
+        msg = JSON.parse(line)
+        # Send a notification first
+        notification = { "jsonrpc" => "2.0", "method" => "notifications/tools/list_changed", "params" => {} }
+        $stdout.puts JSON.generate(notification)
+        $stdout.flush
+        # Then send the actual response
+        response = { "jsonrpc" => "2.0", "id" => msg["id"], "result" => { "echo" => msg["params"] } }
+        $stdout.puts JSON.generate(response)
+        $stdout.flush
+      RUBY
+    end
+
+    let(:notification_script_path) do
+      path = File.join(Dir.tmpdir, "manceps_notif_server.rb")
+      File.write(path, notification_then_response_script)
+      path
+    end
+
+    after do
+      File.delete(notification_script_path) if File.exist?(notification_script_path)
+    end
+
+    it "skips notifications and returns the response" do
+      transport = described_class.new("ruby", args: [notification_script_path])
+      transport.open
+
+      body = { "jsonrpc" => "2.0", "id" => 1, "method" => "test", "params" => { "key" => "value" } }
+      response = transport.request(body)
+
+      expect(response["id"]).to eq(1)
+      expect(response["result"]["echo"]).to eq({ "key" => "value" })
+    ensure
+      transport&.close
+    end
+
+    it "dispatches notifications to the callback" do
+      transport = described_class.new("ruby", args: [notification_script_path])
+      transport.open
+
+      received_notifications = []
+      transport.on_notification { |n| received_notifications << n }
+
+      body = { "jsonrpc" => "2.0", "id" => 1, "method" => "test", "params" => {} }
+      transport.request(body)
+
+      expect(received_notifications.length).to eq(1)
+      expect(received_notifications.first["method"]).to eq("notifications/tools/list_changed")
+    ensure
+      transport&.close
+    end
+  end
+
+  describe "#listen" do
+    let(:notification_stream_script) do
+      <<~RUBY
+        require "json"
+        3.times do |i|
+          notification = { "jsonrpc" => "2.0", "method" => "notifications/resources/updated", "params" => { "uri" => "file:///item\#{i}" } }
+          $stdout.puts JSON.generate(notification)
+          $stdout.flush
+        end
+      RUBY
+    end
+
+    let(:listen_script_path) do
+      path = File.join(Dir.tmpdir, "manceps_listen_server.rb")
+      File.write(path, notification_stream_script)
+      path
+    end
+
+    after do
+      File.delete(listen_script_path) if File.exist?(listen_script_path)
+    end
+
+    it "yields notifications until the process ends" do
+      transport = described_class.new("ruby", args: [listen_script_path])
+      transport.open
+
+      received = []
+      transport.listen { |n| received << n }
+
+      expect(received.length).to eq(3)
+      expect(received.map { |n| n["params"]["uri"] }).to eq(%w[file:///item0 file:///item1 file:///item2])
+    ensure
+      transport&.close
+    end
+
+    it "raises ConnectionError when transport is not open" do
+      transport = described_class.new("ruby", args: [listen_script_path])
+
+      expect {
+        transport.listen { }
+      }.to raise_error(Manceps::ConnectionError, /not open/)
+    end
+  end
+
   describe "environment variables" do
     it "passes env to the subprocess" do
       env_script = <<~RUBY
