@@ -23,4 +23,5 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "httpx", ">= 1.0"
+  spec.add_dependency "base64"
 end

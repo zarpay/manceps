@@ -26,6 +26,30 @@ module Manceps
         parse_response(response)
       end
 
+      def request_streaming(body, &block)
+        response = @http.post(@url, headers: base_headers, body: JSON.generate(body))
+        handle_error_response(response)
+        capture_session_id(response)
+
+        content_type = response.content_type.mime_type
+
+        if content_type.include?("text/event-stream")
+          events = SSEParser.parse_events(response.body.to_s)
+          final_result = nil
+          events.each do |event|
+            parsed = JSON.parse(event[:data]) rescue next
+            if parsed["result"] || parsed["error"]
+              final_result = parsed
+            else
+              block.call(parsed) if block
+            end
+          end
+          final_result || parse_response(response)
+        else
+          parse_response(response)
+        end
+      end
+
       def notify(body)
         response = @http.post(@url, headers: base_headers, body: JSON.generate(body))
         handle_error_response(response) unless response.status == 202

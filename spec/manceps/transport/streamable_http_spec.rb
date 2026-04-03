@@ -162,6 +162,58 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
     end
   end
 
+  describe "#request_streaming" do
+    it "yields intermediate SSE events and returns the final result" do
+      sse_body = <<~SSE
+        event: progress
+        data: {"type":"progress","progress":50}
+
+        event: message
+        data: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"done"}]}}
+      SSE
+
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tools/call"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "text/event-stream" },
+          body: sse_body
+        )
+
+      yielded_events = []
+      result = transport.request_streaming(
+        { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "slow_tool" } }
+      ) { |event| yielded_events << event }
+
+      expect(yielded_events.length).to eq(1)
+      expect(yielded_events[0]["type"]).to eq("progress")
+      expect(yielded_events[0]["progress"]).to eq(50)
+
+      expect(result).to be_a(Hash)
+      expect(result["result"]["content"][0]["text"]).to eq("done")
+    end
+
+    it "returns parsed JSON when server responds with application/json" do
+      stub_request(:post, url)
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 3,
+            result: { content: [{ type: "text", text: "immediate" }] }
+          })
+        )
+
+      yielded_events = []
+      result = transport.request_streaming(
+        { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "fast_tool" } }
+      ) { |event| yielded_events << event }
+
+      expect(yielded_events).to be_empty
+      expect(result["result"]["content"][0]["text"]).to eq("immediate")
+    end
+  end
+
   describe "#terminate_session" do
     it "sends DELETE request with session id header" do
       auth_obj = Manceps::Auth::Bearer.new("tok")

@@ -182,6 +182,115 @@ RSpec.describe Manceps::Client do
     end
   end
 
+  describe "#prompts" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "returns an array of Prompt objects" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "prompts/list"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              prompts: [
+                { name: "code_review", description: "Review code", arguments: [{ name: "code", required: true }] },
+                { name: "summarize", description: "Summarize text" }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      prompts = client.prompts
+
+      expect(prompts.length).to eq(2)
+      expect(prompts).to all(be_a(Manceps::Prompt))
+      expect(prompts.first.name).to eq("code_review")
+      expect(prompts.first.arguments.length).to eq(1)
+      expect(prompts.last.name).to eq("summarize")
+    end
+  end
+
+  describe "#get_prompt" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "sends prompts/get and returns a PromptResult" do
+      stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "prompts/get",
+          "params" => hash_including("name" => "code_review", "arguments" => { "code" => "puts 1" })
+        ))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              description: "Code review prompt",
+              messages: [
+                { role: "user", content: { type: "text", text: "Review: puts 1" } }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      result = client.get_prompt("code_review", code: "puts 1")
+
+      expect(result).to be_a(Manceps::PromptResult)
+      expect(result.description).to eq("Code review prompt")
+      expect(result.messages.length).to eq(1)
+      expect(result.messages.first.role).to eq("user")
+      expect(result.messages.first.text).to eq("Review: puts 1")
+    end
+  end
+
+  describe "#call_tool_streaming" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "yields intermediate events and returns a ToolResult" do
+      sse_body = <<~SSE
+        event: progress
+        data: {"type":"progress","progress":50}
+
+        event: message
+        data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"done"}],"isError":false}}
+      SSE
+
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tools/call"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "text/event-stream" },
+          body: sse_body
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      yielded_events = []
+      result = client.call_tool_streaming("slow_tool", input: "data") { |e| yielded_events << e }
+
+      expect(result).to be_a(Manceps::ToolResult)
+      expect(result.text).to eq("done")
+      expect(yielded_events.length).to eq(1)
+      expect(yielded_events[0]["type"]).to eq("progress")
+    end
+  end
+
   describe "#disconnect" do
     it "calls close on the transport and resets the session" do
       stub_initialize
@@ -279,6 +388,162 @@ RSpec.describe Manceps::Client do
       client = described_class.new(url, auth: auth)
 
       expect { client.connect }.to raise_error(Manceps::ProtocolError, "Invalid protocol version")
+    end
+  end
+
+  describe "#resources" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "returns an array of Resource objects" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "resources/list"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              resources: [
+                { uri: "file:///readme.md", name: "README", description: "Project readme", mimeType: "text/markdown" },
+                { uri: "file:///config.json", name: "Config", description: "App config" }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      resources = client.resources
+
+      expect(resources.length).to eq(2)
+      expect(resources).to all(be_a(Manceps::Resource))
+      expect(resources.first.uri).to eq("file:///readme.md")
+      expect(resources.first.name).to eq("README")
+      expect(resources.first.mime_type).to eq("text/markdown")
+      expect(resources.last.uri).to eq("file:///config.json")
+    end
+
+    it "returns empty array when server has no resources" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "resources/list"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: { resources: [] } })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect(client.resources).to eq([])
+    end
+  end
+
+  describe "#resource_templates" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "returns an array of ResourceTemplate objects" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "resources/templates/list"))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              resourceTemplates: [
+                { uriTemplate: "file:///logs/{date}.log", name: "Daily Log", description: "Logs by date" }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      templates = client.resource_templates
+
+      expect(templates.length).to eq(1)
+      expect(templates.first).to be_a(Manceps::ResourceTemplate)
+      expect(templates.first.uri_template).to eq("file:///logs/{date}.log")
+      expect(templates.first.name).to eq("Daily Log")
+    end
+  end
+
+  describe "#read_resource" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "sends resources/read and returns ResourceContents" do
+      stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "resources/read",
+          "params" => hash_including("uri" => "file:///readme.md")
+        ))
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              contents: [
+                { type: "text", text: "# Hello\nWelcome to the project", uri: "file:///readme.md", mimeType: "text/markdown" }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      result = client.read_resource("file:///readme.md")
+
+      expect(result).to be_a(Manceps::ResourceContents)
+      expect(result.contents.length).to eq(1)
+      expect(result.text).to eq("# Hello\nWelcome to the project")
+    end
+  end
+
+  describe "transport selection" do
+    it "uses StreamableHTTP for http:// URLs" do
+      client = described_class.new("http://localhost:3000/mcp")
+      transport = client.instance_variable_get(:@transport)
+
+      expect(transport).to be_a(Manceps::Transport::StreamableHTTP)
+    end
+
+    it "uses StreamableHTTP for https:// URLs" do
+      client = described_class.new("https://example.com/mcp", auth: auth)
+      transport = client.instance_variable_get(:@transport)
+
+      expect(transport).to be_a(Manceps::Transport::StreamableHTTP)
+    end
+
+    it "uses Stdio for non-URL strings" do
+      client = described_class.new("npx", args: ["-y", "@modelcontextprotocol/server-everything"])
+      transport = client.instance_variable_get(:@transport)
+
+      expect(transport).to be_a(Manceps::Transport::Stdio)
+    end
+
+    it "uses Stdio when args: keyword is provided even with URL-like string" do
+      client = described_class.new("https-server", args: ["--port", "3000"])
+      transport = client.instance_variable_get(:@transport)
+
+      expect(transport).to be_a(Manceps::Transport::Stdio)
+    end
+
+    it "passes env to Stdio transport" do
+      client = described_class.new("my-server", env: { "API_KEY" => "secret" })
+      transport = client.instance_variable_get(:@transport)
+
+      expect(transport).to be_a(Manceps::Transport::Stdio)
     end
   end
 

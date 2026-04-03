@@ -5,6 +5,10 @@ module Manceps
         raise NotImplementedError
       end
 
+      def request_streaming(body, &block)
+        raise NotImplementedError
+      end
+
       def notify(body)
         raise NotImplementedError
       end

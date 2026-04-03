@@ -2,12 +2,18 @@ module Manceps
   class Client
     attr_reader :session
 
-    def initialize(url, auth: Auth::None.new, **options)
-      @transport = Transport::StreamableHTTP.new(url, auth: auth, timeout: options[:timeout])
+    def initialize(url_or_command, auth: Auth::None.new, args: nil, env: nil, **options)
+      if args || !url_or_command.match?(/\Ahttps?:\/\//i)
+        @transport = Transport::Stdio.new(url_or_command, args: args || [], env: env || {})
+      else
+        @transport = Transport::StreamableHTTP.new(url_or_command, auth: auth, timeout: options[:timeout])
+      end
       @session = Session.new
     end
 
     def connect
+      @transport.open if @transport.respond_to?(:open)
+
       init_response = @transport.request(
         JsonRpc.initialize_request(@session.next_id)
       )
@@ -35,6 +41,35 @@ module Manceps
     def call_tool(name, **arguments)
       response = request("tools/call", name: name, arguments: arguments)
       ToolResult.new(response["result"])
+    end
+
+    def call_tool_streaming(name, **arguments, &block)
+      body = JsonRpc.request(@session.next_id, "tools/call", { name: name, arguments: arguments })
+      response = @transport.request_streaming(body, &block)
+      handle_rpc_error(response)
+      ToolResult.new(response["result"])
+    end
+
+    def prompts
+      paginate("prompts/list", "prompts") { |data| Prompt.new(data) }
+    end
+
+    def get_prompt(name, **arguments)
+      response = request("prompts/get", name: name, arguments: arguments)
+      PromptResult.new(response["result"])
+    end
+
+    def resources
+      paginate("resources/list", "resources") { |data| Resource.new(data) }
+    end
+
+    def resource_templates
+      paginate("resources/templates/list", "resourceTemplates") { |data| ResourceTemplate.new(data) }
+    end
+
+    def read_resource(uri)
+      response = request("resources/read", uri: uri)
+      ResourceContents.new(response["result"])
     end
 
     def self.open(url, **options)
