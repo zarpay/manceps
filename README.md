@@ -133,15 +133,18 @@ client = Manceps::Client.new("http://localhost:3000/mcp")
 # List available tools
 tools = client.tools
 tools.each do |tool|
-  puts "#{tool.name}: #{tool.description}"
-  puts "  Schema: #{tool.input_schema}"
+  puts "#{tool.title || tool.name}: #{tool.description}"
+  puts "  Input:  #{tool.input_schema}"
+  puts "  Output: #{tool.output_schema}" if tool.output_schema  # structured output (2025-06-18+)
 end
 
 # Call a tool
 result = client.call_tool("get_weather", location: "New York")
-result.text     # joined text content
-result.content  # Array<Content>
-result.error?   # true if server flagged an error
+result.text                # joined text content
+result.content             # Array<Content>
+result.error?              # true if server flagged an error
+result.structured_content  # parsed structured output (when tool declares outputSchema)
+result.structured?         # true if structured content present
 
 # Stream a long-running tool call
 client.call_tool_streaming("analyze_data", dataset: "large.csv") do |event|
@@ -154,11 +157,11 @@ end
 ```ruby
 # List resources
 resources = client.resources
-resources.each { |r| puts "#{r.uri}: #{r.name}" }
+resources.each { |r| puts "#{r.uri}: #{r.title || r.name}" }
 
 # List resource templates
 templates = client.resource_templates
-templates.each { |t| puts "#{t.uri_template}: #{t.name}" }
+templates.each { |t| puts "#{t.uri_template}: #{t.title || t.name}" }
 
 # Read a resource
 contents = client.read_resource("file:///project/src/main.rs")
@@ -228,6 +231,8 @@ end
 **No LLM coupling.** Pure protocol client. No `to_openai_tools()` or framework integrations -- use it with anything.
 
 **Extracted from production.** The protocol handling and OAuth flows come from [Agora](https://github.com/zarpay/agentus), where MCP connections run under real load.
+
+**Full 2025-11-25 spec.** Protocol version negotiation, elicitation, tasks, structured tool output, `MCP-Protocol-Version` header -- not just the basics.
 
 ## Notifications
 
