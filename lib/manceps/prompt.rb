@@ -1,10 +1,11 @@
 module Manceps
   class Prompt
-    attr_reader :name, :description, :arguments
+    attr_reader :name, :description, :arguments, :title
 
     def initialize(data)
       @name = data["name"]
       @description = data["description"]
+      @title = data["title"]
       @arguments = (data["arguments"] || []).map { |a| Argument.new(a) }
     end
 

@@ -24,6 +24,10 @@ module Manceps
       @established
     end
 
+    def server_supports?(capability)
+      capabilities.key?(capability.to_s) || capabilities.key?(capability.to_sym)
+    end
+
     def reset
       @id = nil
       @capabilities = {}

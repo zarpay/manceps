@@ -12,15 +12,20 @@ module Manceps
       {jsonrpc: "2.0", method: method, params: params}
     end
 
-    def initialize_request(id, client_info: nil)
+    def initialize_request(id, client_info: nil, capabilities: {})
       config = Manceps.configuration
       info = client_info || {name: config.client_name, version: config.client_version}
+      info[:description] = config.client_description if config.client_description
 
       request(id, "initialize", {
         protocolVersion: config.protocol_version,
-        capabilities: {},
+        capabilities: capabilities,
         clientInfo: info
       })
+    end
+
+    def response(id, result)
+      {jsonrpc: "2.0", id: id, result: result}
     end
 
     def initialized_notification

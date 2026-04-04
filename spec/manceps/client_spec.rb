@@ -10,7 +10,7 @@ RSpec.describe Manceps::Client do
       jsonrpc: "2.0",
       id: 1,
       result: {
-        protocolVersion: "2025-03-26",
+        protocolVersion: "2025-11-25",
         capabilities: { tools: {} },
         serverInfo: { name: "TestServer", version: "1.0" }
       }
@@ -102,6 +102,75 @@ RSpec.describe Manceps::Client do
       # The transport captures Mcp-Session-Id and sends it on subsequent
       # requests, verified by header assertions in other specs.
       expect(client.session).to be_a(Manceps::Session)
+    end
+
+    it "sets protocol_version on the transport after initialization" do
+      stub_initialize
+      stub_initialized_notification
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      transport = client.instance_variable_get(:@transport)
+      expect(transport.instance_variable_get(:@protocol_version)).to eq("2025-11-25")
+    end
+
+    it "raises ProtocolError when server returns an unsupported protocol version" do
+      unsupported_init_body = JSON.generate({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2024-01-01",
+          capabilities: { tools: {} },
+          serverInfo: { name: "TestServer", version: "1.0" }
+        }
+      })
+
+      stub_request(:post, url)
+        .with(
+          body: hash_including("method" => "initialize"),
+          headers: { "Authorization" => "Bearer test-token" }
+        )
+        .to_return(
+          status: 200,
+          headers: init_response_headers,
+          body: unsupported_init_body
+        )
+
+      stub_delete_session
+
+      client = described_class.new(url, auth: auth)
+
+      expect { client.connect }.to raise_error(Manceps::ProtocolError, /unsupported protocol version.*2024-01-01/)
+    end
+
+    it "succeeds when server returns a supported older version" do
+      older_init_body = JSON.generate({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          protocolVersion: "2025-03-26",
+          capabilities: { tools: {} },
+          serverInfo: { name: "TestServer", version: "1.0" }
+        }
+      })
+
+      stub_request(:post, url)
+        .with(
+          body: hash_including("method" => "initialize"),
+          headers: { "Authorization" => "Bearer test-token" }
+        )
+        .to_return(
+          status: 200,
+          headers: init_response_headers,
+          body: older_init_body
+        )
+      stub_initialized_notification
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect(client.session.protocol_version).to eq("2025-03-26")
     end
   end
 
@@ -963,6 +1032,311 @@ RSpec.describe Manceps::Client do
 
       expect(tools.length).to eq(2)
       expect(tools.map(&:name)).to eq(%w[tool_a tool_b])
+    end
+  end
+
+  describe "#tasks" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    let(:json_headers) { { "Content-Type" => "application/json" } }
+
+    it "returns an array of Task objects" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tasks/list"))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: {
+              tasks: [
+                { id: "task-1", status: "running" },
+                { id: "task-2", status: "completed", result: { content: [{ type: "text", text: "done" }] } }
+              ]
+            }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      tasks = client.tasks
+
+      expect(tasks.length).to eq(2)
+      expect(tasks).to all(be_a(Manceps::Task))
+      expect(tasks.first.id).to eq("task-1")
+      expect(tasks.first.status).to eq("running")
+      expect(tasks.last.id).to eq("task-2")
+      expect(tasks.last.completed?).to be true
+    end
+
+    it "returns empty array when server has no tasks" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tasks/list"))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: { tasks: [] } })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect(client.tasks).to eq([])
+    end
+  end
+
+  describe "#get_task" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    let(:json_headers) { { "Content-Type" => "application/json" } }
+
+    it "sends tasks/get and returns a Task" do
+      stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "tasks/get",
+          "params" => hash_including("taskId" => "task-1")
+        ))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({
+            jsonrpc: "2.0", id: 2,
+            result: { id: "task-1", status: "completed", result: { content: [{ type: "text", text: "done" }] } }
+          })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      task = client.get_task("task-1")
+
+      expect(task).to be_a(Manceps::Task)
+      expect(task.id).to eq("task-1")
+      expect(task.completed?).to be true
+    end
+  end
+
+  describe "#cancel_task" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    let(:json_headers) { { "Content-Type" => "application/json" } }
+
+    it "sends tasks/cancel and returns true" do
+      cancel_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "method" => "tasks/cancel",
+          "params" => hash_including("taskId" => "task-1")
+        ))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: {} })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      result = client.cancel_task("task-1")
+
+      expect(result).to be true
+      expect(cancel_stub).to have_been_requested
+    end
+  end
+
+  describe "#await_task" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    let(:json_headers) { { "Content-Type" => "application/json" } }
+
+    it "polls until the task is done and returns the completed task" do
+      call_count = 0
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tasks/get"))
+        .to_return do |_request|
+          call_count += 1
+          if call_count == 1
+            {
+              status: 200,
+              headers: json_headers,
+              body: JSON.generate({ jsonrpc: "2.0", id: call_count + 1, result: { id: "task-1", status: "running" } })
+            }
+          else
+            {
+              status: 200,
+              headers: json_headers,
+              body: JSON.generate({ jsonrpc: "2.0", id: call_count + 1, result: { id: "task-1", status: "completed", result: { content: [{ type: "text", text: "done" }] } } })
+            }
+          end
+        end
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      allow(client).to receive(:sleep)
+
+      task = client.await_task("task-1")
+
+      expect(task).to be_a(Manceps::Task)
+      expect(task.completed?).to be true
+      expect(call_count).to eq(2)
+    end
+
+    it "raises TimeoutError when timeout is exceeded" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tasks/get"))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: { id: "task-1", status: "running" } })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      allow(client).to receive(:sleep)
+
+      # Freeze time: first call at T=0, after sleep the deadline check sees T > deadline
+      now = Time.now
+      allow(Time).to receive(:now).and_return(now, now + 5)
+
+      expect {
+        client.await_task("task-1", timeout: 2)
+      }.to raise_error(Manceps::TimeoutError, /task-1.*did not complete within 2 seconds/)
+    end
+
+    it "returns immediately when task is already done" do
+      stub_request(:post, url)
+        .with(body: hash_including("method" => "tasks/get"))
+        .to_return(
+          status: 200,
+          headers: json_headers,
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: { id: "task-1", status: "failed", error: { message: "boom" } } })
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      task = client.await_task("task-1")
+
+      expect(task.failed?).to be true
+      expect(task.done?).to be true
+    end
+  end
+
+  describe "#on_elicitation" do
+    it "registers an elicitation handler" do
+      client = described_class.new(url, auth: auth)
+      client.on_elicitation { |e| Manceps::Elicitation.accept({ "key" => "value" }) }
+
+      handler = client.instance_variable_get(:@elicitation_handler)
+      expect(handler).to be_a(Proc)
+    end
+  end
+
+  describe "elicitation capability" do
+    it "includes elicitation capability when handler is set" do
+      client = described_class.new(url, auth: auth)
+      client.on_elicitation { |e| Manceps::Elicitation.decline }
+
+      caps = client.send(:client_capabilities)
+      expect(caps).to eq("elicitation" => { "form" => {} })
+    end
+
+    it "does not include elicitation capability when no handler is set" do
+      client = described_class.new(url, auth: auth)
+
+      caps = client.send(:client_capabilities)
+      expect(caps).to eq({})
+    end
+
+    it "sends elicitation capability in initialize request when handler is registered" do
+      init_stub = stub_request(:post, url)
+        .with(
+          body: hash_including(
+            "method" => "initialize",
+            "params" => hash_including(
+              "capabilities" => { "elicitation" => { "form" => {} } }
+            )
+          ),
+          headers: { "Authorization" => "Bearer test-token" }
+        )
+        .to_return(
+          status: 200,
+          headers: init_response_headers,
+          body: init_response_body
+        )
+      stub_initialized_notification
+
+      client = described_class.new(url, auth: auth)
+      client.on_elicitation { |e| Manceps::Elicitation.decline }
+      client.connect
+
+      expect(init_stub).to have_been_requested
+    end
+  end
+
+  describe "handle_server_request (elicitation)" do
+    before do
+      stub_initialize
+      stub_initialized_notification
+    end
+
+    it "calls the elicitation handler and sends a response" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      received_elicitation = nil
+      client.on_elicitation do |e|
+        received_elicitation = e
+        Manceps::Elicitation.accept({ "api_key" => "sk-123" })
+      end
+
+      response_stub = stub_request(:post, url)
+        .with(body: hash_including(
+          "jsonrpc" => "2.0",
+          "id" => "req-42",
+          "result" => { "action" => "accept", "content" => { "api_key" => "sk-123" } }
+        ))
+        .to_return(status: 202)
+
+      server_request = {
+        "jsonrpc" => "2.0",
+        "id" => "req-42",
+        "method" => "elicitation/create",
+        "params" => {
+          "id" => "elicit-1",
+          "message" => "Enter your API key",
+          "requestedSchema" => { "type" => "object" }
+        }
+      }
+
+      client.send(:handle_server_request, server_request)
+
+      expect(received_elicitation).to be_a(Manceps::Elicitation)
+      expect(received_elicitation.message).to eq("Enter your API key")
+      expect(response_stub).to have_been_requested
+    end
+
+    it "does nothing when no elicitation handler is set" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      server_request = {
+        "jsonrpc" => "2.0",
+        "id" => "req-42",
+        "method" => "elicitation/create",
+        "params" => { "id" => "elicit-1", "message" => "Enter your key" }
+      }
+
+      expect { client.send(:handle_server_request, server_request) }.not_to raise_error
     end
   end
 end

@@ -16,6 +16,7 @@ require_relative "manceps/prompt_result"
 require_relative "manceps/resource"
 require_relative "manceps/resource_template"
 require_relative "manceps/resource_contents"
+require_relative "manceps/elicitation"
 require_relative "manceps/backoff"
 require_relative "manceps/session"
 require_relative "manceps/auth/none"
@@ -26,13 +27,16 @@ require_relative "manceps/transport/base"
 require_relative "manceps/transport/streamable_http"
 require_relative "manceps/transport/stdio"
 require_relative "manceps/batch"
+require_relative "manceps/task"
 require_relative "manceps/client"
 
 module Manceps
   Configuration = Struct.new(
     :client_name,
     :client_version,
+    :client_description,
     :protocol_version,
+    :supported_versions,
     :request_timeout,
     :connect_timeout,
     keyword_init: true
@@ -41,7 +45,8 @@ module Manceps
       super
       self.client_name ||= "Manceps"
       self.client_version ||= Manceps::VERSION
-      self.protocol_version ||= "2025-03-26"
+      self.protocol_version ||= "2025-11-25"
+      self.supported_versions ||= ["2025-11-25", "2025-06-18", "2025-03-26"]
       self.request_timeout ||= 30
       self.connect_timeout ||= 10
     end

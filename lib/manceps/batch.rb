@@ -31,6 +31,8 @@ module Manceps
 
     # Execute all queued requests in a single batch
     def execute
+      warn "[Manceps] DEPRECATION: JSON-RPC batching was removed from MCP spec in 2025-06-18. " \
+           "Batch support will be removed in a future version."
       return {} if @requests.empty?
 
       batch_body = @requests.map { |r| r[:body] }

@@ -12,6 +12,7 @@ module Manceps
       @max_retries = max_retries
       @backoff = Backoff.new
       @notification_handlers = Hash.new { |h, k| h[k] = [] }
+      @elicitation_handler = nil
     end
 
     def connect
@@ -20,10 +21,23 @@ module Manceps
         @transport.open if @transport.respond_to?(:open)
 
         init_response = @transport.request(
-          JsonRpc.initialize_request(@session.next_id)
+          JsonRpc.initialize_request(@session.next_id, capabilities: client_capabilities)
         )
         handle_rpc_error(init_response)
         @session.establish(init_response)
+
+        unless Manceps.configuration.supported_versions.include?(@session.protocol_version)
+          server_version = @session.protocol_version
+          disconnect
+          raise ProtocolError.new(
+            "Server negotiated unsupported protocol version: #{server_version}",
+            code: -32600
+          )
+        end
+
+        if @transport.respond_to?(:protocol_version=)
+          @transport.protocol_version = @session.protocol_version
+        end
 
         @transport.notify(JsonRpc.initialized_notification)
         @backoff.reset
@@ -70,7 +84,16 @@ module Manceps
 
     def call_tool_streaming(name, **arguments, &block)
       body = JsonRpc.request(@session.next_id, "tools/call", { name: name, arguments: arguments })
-      response = @transport.request_streaming(body, &block)
+      wrapped_block = if block
+        proc do |event|
+          if event.is_a?(Hash) && event["id"] && event["method"]
+            handle_server_request(event)
+          else
+            block.call(event)
+          end
+        end
+      end
+      response = @transport.request_streaming(body, &wrapped_block)
       handle_rpc_error(response)
       ToolResult.new(response["result"])
     end
@@ -116,12 +139,20 @@ module Manceps
     end
 
     def listen
-      @transport.listen do |notification|
-        method = notification["method"]
-        params = notification["params"]
-        handlers = @notification_handlers[method]
-        handlers.each { |h| h.call(params) } if handlers
+      @transport.listen do |message|
+        if message["id"] && message["method"]
+          handle_server_request(message)
+        else
+          method = message["method"]
+          params = message["params"]
+          handlers = @notification_handlers[method]
+          handlers.each { |h| h.call(params) } if handlers
+        end
       end
+    end
+
+    def on_elicitation(&block)
+      @elicitation_handler = block
     end
 
     def batch
@@ -129,6 +160,38 @@ module Manceps
       yield b
       b.execute
       b
+    end
+
+    # --- Tasks (experimental, protocol 2025-11-25) ---
+
+    def tasks
+      response = request("tasks/list")
+      (response.dig("result", "tasks") || []).map { |data| Task.new(data) }
+    end
+
+    def get_task(task_id)
+      response = request("tasks/get", taskId: task_id)
+      Task.new(response["result"])
+    end
+
+    def cancel_task(task_id)
+      request("tasks/cancel", taskId: task_id)
+      true
+    end
+
+    def await_task(task_id, interval: 1, timeout: nil)
+      deadline = timeout ? Time.now + timeout : nil
+
+      loop do
+        task = get_task(task_id)
+        return task if task.done?
+
+        if deadline && Time.now >= deadline
+          raise TimeoutError, "Task #{task_id} did not complete within #{timeout} seconds"
+        end
+
+        sleep interval
+      end
     end
 
     def self.open(url, **options)
@@ -140,6 +203,23 @@ module Manceps
     end
 
     private
+
+    def client_capabilities
+      caps = {}
+      caps["elicitation"] = { "form" => {} } if @elicitation_handler
+      caps
+    end
+
+    def handle_server_request(request_data)
+      case request_data["method"]
+      when "elicitation/create"
+        return unless @elicitation_handler
+        elicitation = Elicitation.new(request_data["params"])
+        result = @elicitation_handler.call(elicitation)
+        response = JsonRpc.response(request_data["id"], result)
+        @transport.notify(response)
+      end
+    end
 
     def transport_batch_request(batch_body)
       @transport.request(batch_body)

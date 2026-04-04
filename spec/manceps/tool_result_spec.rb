@@ -41,6 +41,25 @@ RSpec.describe Manceps::ToolResult do
     end
   end
 
+  describe "#structured?" do
+    it "returns true when structuredContent is present" do
+      result = described_class.new(
+        "content" => [{"type" => "text", "text" => "ok"}],
+        "structuredContent" => {"temperature" => 72, "unit" => "F"}
+      )
+
+      expect(result).to be_structured
+      expect(result.structured_content).to eq({"temperature" => 72, "unit" => "F"})
+    end
+
+    it "returns false when structuredContent is absent" do
+      result = described_class.new("content" => [{"type" => "text", "text" => "ok"}])
+
+      expect(result).not_to be_structured
+      expect(result.structured_content).to be_nil
+    end
+  end
+
   describe "empty content" do
     it "handles empty content" do
       result = described_class.new("content" => [])

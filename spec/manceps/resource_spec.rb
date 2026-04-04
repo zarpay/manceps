@@ -19,6 +19,18 @@ RSpec.describe Manceps::Resource do
     expect(resource.annotations).to eq({ "audience" => ["developer"] })
   end
 
+  it "parses title when present" do
+    data = {
+      "uri" => "file:///readme.md",
+      "name" => "README",
+      "title" => "Project README File"
+    }
+
+    resource = described_class.new(data)
+
+    expect(resource.title).to eq("Project README File")
+  end
+
   it "handles missing optional fields" do
     data = { "uri" => "file:///data.json", "name" => "Data" }
 
@@ -29,5 +41,6 @@ RSpec.describe Manceps::Resource do
     expect(resource.description).to be_nil
     expect(resource.mime_type).to be_nil
     expect(resource.annotations).to be_nil
+    expect(resource.title).to be_nil
   end
 end

@@ -10,7 +10,7 @@ RSpec.describe Manceps::Batch do
       jsonrpc: "2.0",
       id: 1,
       result: {
-        protocolVersion: "2025-03-26",
+        protocolVersion: "2025-11-25",
         capabilities: { tools: {} },
         serverInfo: { name: "TestServer", version: "1.0" }
       }
@@ -95,6 +95,25 @@ RSpec.describe Manceps::Batch do
   end
 
   describe "#execute" do
+    it "emits a deprecation warning" do
+      batch = described_class.new(client)
+      batch.call_tool("get_weather", location: "NYC")
+
+      stub_request(:post, url)
+        .with { |req| JSON.parse(req.body).is_a?(Array) }
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate([
+            { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "sunny" }] } }
+          ])
+        )
+
+      expect { batch.execute }.to output(
+        /DEPRECATION.*JSON-RPC batching was removed from MCP spec/
+      ).to_stderr
+    end
+
     it "sends a JSON array as the batch body" do
       batch_stub = stub_request(:post, url)
         .with { |req| JSON.parse(req.body).is_a?(Array) }

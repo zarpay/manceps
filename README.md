@@ -186,9 +186,11 @@ result.messages.each { |m| puts "#{m.role}: #{m.text}" }
 Manceps.configure do |c|
   c.client_name      = "MyApp"           # default: "Manceps"
   c.client_version   = "1.0.0"           # default: Manceps::VERSION
-  c.protocol_version = "2025-03-26"      # default: "2025-03-26"
+  c.protocol_version = "2025-11-25"      # default: "2025-11-25"
   c.request_timeout  = 60                # default: 30 (seconds)
   c.connect_timeout  = 15                # default: 10 (seconds)
+  c.client_description = "My app"        # optional, sent in clientInfo
+  c.supported_versions = ["2025-11-25", "2025-06-18", "2025-03-26"]  # for negotiation
 end
 ```
 
@@ -245,20 +247,56 @@ client.cancel_request(request_id, reason: "User cancelled")
 client.listen  # dispatches to registered handlers
 ```
 
-## Batch Requests
+## Elicitation
 
-Send multiple requests in a single round-trip:
+Handle server requests for additional user input during tool calls:
+
+```ruby
+client.on_elicitation do |elicitation|
+  puts "Server asks: #{elicitation.message}"
+  puts "Schema: #{elicitation.requested_schema}"
+
+  # Respond with user input
+  Manceps::Elicitation.accept({ "name" => "Alice", "confirm" => true })
+  # Or decline/cancel:
+  # Manceps::Elicitation.decline
+  # Manceps::Elicitation.cancel
+end
+```
+
+Elicitation capability is automatically declared during initialization when a handler is registered.
+
+## Tasks (Experimental)
+
+Track long-running operations:
+
+```ruby
+# List tasks
+client.tasks.each { |t| puts "#{t.id}: #{t.status}" }
+
+# Get a specific task
+task = client.get_task("task-123")
+task.completed?  # => false
+task.running?    # => true
+
+# Poll until done
+task = client.await_task("task-123", interval: 2, timeout: 60)
+puts task.result
+
+# Cancel a task
+client.cancel_task("task-123")
+```
+
+## Batch Requests (Deprecated)
+
+> JSON-RPC batching was removed from the MCP spec in 2025-06-18. This feature emits a deprecation warning and will be removed in a future version.
 
 ```ruby
 batch = client.batch do |b|
   weather_id = b.call_tool("get_weather", location: "NYC")
   readme_id = b.read_resource("file:///README.md")
-  review_id = b.get_prompt("code_review", code: "def hello; end")
 end
-
 batch[weather_id]  # => ToolResult
-batch[readme_id]   # => ResourceContents
-batch[review_id]   # => PromptResult
 ```
 
 ## Resilience
@@ -279,9 +317,11 @@ client.ping  # => true/false
 client.reconnect!
 ```
 
-## Roadmap
+## Protocol Version
 
-- **v1.0** -- Protocol 2025-11-25 support, stable API
+Manceps targets MCP protocol **2025-11-25** by default. It negotiates with the server during initialization and supports fallback to `2025-06-18` and `2025-03-26`.
+
+After initialization, the `MCP-Protocol-Version` header is included on all HTTP requests per the spec.
 
 ## License
 

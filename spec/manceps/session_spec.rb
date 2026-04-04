@@ -42,6 +42,26 @@ RSpec.describe Manceps::Session do
     end
   end
 
+  describe "#server_supports?" do
+    it "returns true when capability exists as string key" do
+      session.establish(sessionId: "s1", result: {"capabilities" => {"tools" => {}}})
+
+      expect(session.server_supports?("tools")).to be true
+    end
+
+    it "returns true when capability exists as symbol key" do
+      session.establish(sessionId: "s1", result: {capabilities: {tools: {}}})
+
+      expect(session.server_supports?(:tools)).to be true
+    end
+
+    it "returns false when capability does not exist" do
+      session.establish(sessionId: "s1", result: {capabilities: {tools: {}}})
+
+      expect(session.server_supports?(:prompts)).to be false
+    end
+  end
+
   describe "#reset" do
     it "clears all state" do
       session.establish(sessionId: "s1", result: {capabilities: {tools: {}}})

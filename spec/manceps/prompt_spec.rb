@@ -20,6 +20,18 @@ RSpec.describe Manceps::Prompt do
       expect(prompt.description).to eq("Review code for best practices")
     end
 
+    it "parses title when present" do
+      prompt = described_class.new(data.merge("title" => "Code Review Tool"))
+
+      expect(prompt.title).to eq("Code Review Tool")
+    end
+
+    it "defaults title to nil when absent" do
+      prompt = described_class.new(data)
+
+      expect(prompt.title).to be_nil
+    end
+
     it "parses arguments array" do
       prompt = described_class.new(data)
 

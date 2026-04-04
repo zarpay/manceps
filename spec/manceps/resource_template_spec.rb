@@ -19,6 +19,18 @@ RSpec.describe Manceps::ResourceTemplate do
     expect(template.annotations).to eq({ "audience" => ["ops"] })
   end
 
+  it "parses title when present" do
+    data = {
+      "uriTemplate" => "file:///logs/{date}.log",
+      "name" => "Daily Log",
+      "title" => "Daily Log Files"
+    }
+
+    template = described_class.new(data)
+
+    expect(template.title).to eq("Daily Log Files")
+  end
+
   it "handles missing optional fields" do
     data = { "uriTemplate" => "db:///{table}", "name" => "Table" }
 
@@ -29,5 +41,6 @@ RSpec.describe Manceps::ResourceTemplate do
     expect(template.description).to be_nil
     expect(template.mime_type).to be_nil
     expect(template.annotations).to be_nil
+    expect(template.title).to be_nil
   end
 end

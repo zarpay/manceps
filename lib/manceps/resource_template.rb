@@ -1,6 +1,6 @@
 module Manceps
   class ResourceTemplate
-    attr_reader :uri_template, :name, :description, :mime_type, :annotations
+    attr_reader :uri_template, :name, :description, :mime_type, :annotations, :title
 
     def initialize(data)
       @uri_template = data["uriTemplate"]
@@ -8,6 +8,7 @@ module Manceps
       @description = data["description"]
       @mime_type = data["mimeType"]
       @annotations = data["annotations"]
+      @title = data["title"]
     end
   end
 end

@@ -39,11 +39,48 @@ RSpec.describe Manceps::JsonRpc do
       )
     end
 
+    it "accepts and includes capabilities" do
+      caps = { "elicitation" => { "form" => {} } }
+      result = described_class.initialize_request(1, capabilities: caps)
+
+      expect(result[:params][:capabilities]).to eq(caps)
+    end
+
+    it "defaults capabilities to empty hash" do
+      result = described_class.initialize_request(1)
+
+      expect(result[:params][:capabilities]).to eq({})
+    end
+
     it "accepts custom client_info" do
       info = {name: "TestClient", version: "1.0"}
       result = described_class.initialize_request(2, client_info: info)
 
       expect(result[:params][:clientInfo]).to eq(info)
+    end
+
+    it "includes description in clientInfo when configured" do
+      original_description = Manceps.configuration.client_description
+      begin
+        Manceps.configuration.client_description = "A test MCP client"
+        result = described_class.initialize_request(3)
+
+        expect(result[:params][:clientInfo][:description]).to eq("A test MCP client")
+      ensure
+        Manceps.configuration.client_description = original_description
+      end
+    end
+
+    it "omits description from clientInfo when not configured" do
+      original_description = Manceps.configuration.client_description
+      begin
+        Manceps.configuration.client_description = nil
+        result = described_class.initialize_request(4)
+
+        expect(result[:params][:clientInfo]).not_to have_key(:description)
+      ensure
+        Manceps.configuration.client_description = original_description
+      end
     end
   end
 
@@ -53,6 +90,22 @@ RSpec.describe Manceps::JsonRpc do
 
       expect(result[:method]).to eq("notifications/initialized")
       expect(result).not_to have_key(:id)
+    end
+  end
+
+  describe ".response" do
+    it "builds a valid JSON-RPC 2.0 response" do
+      result = described_class.response(42, { action: "accept", content: { "key" => "val" } })
+
+      expect(result).to eq(jsonrpc: "2.0", id: 42, result: { action: "accept", content: { "key" => "val" } })
+    end
+
+    it "works with a string id" do
+      result = described_class.response("req-1", { status: "ok" })
+
+      expect(result[:jsonrpc]).to eq("2.0")
+      expect(result[:id]).to eq("req-1")
+      expect(result[:result]).to eq({ status: "ok" })
     end
   end
 

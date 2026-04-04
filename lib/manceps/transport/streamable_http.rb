@@ -4,11 +4,14 @@ require "json"
 module Manceps
   module Transport
     class StreamableHTTP < Base
+      attr_writer :protocol_version
+
       def initialize(url, auth:, timeout: nil)
         @url = url
         @auth = auth
         @session_id = nil
         @last_event_id = nil
+        @protocol_version = nil
 
         timeout_opts = timeout || {
           connect_timeout: Manceps.configuration.connect_timeout,
@@ -104,6 +107,7 @@ module Manceps
           "accept" => "application/json, text/event-stream"
         }
         headers["mcp-session-id"] = @session_id if @session_id
+        headers["mcp-protocol-version"] = @protocol_version if @protocol_version
         headers["last-event-id"] = @last_event_id if @last_event_id
         @auth.apply(headers)
         headers

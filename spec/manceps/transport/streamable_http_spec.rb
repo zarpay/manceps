@@ -391,6 +391,48 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
     end
   end
 
+  describe "MCP-Protocol-Version header" do
+    it "does NOT send MCP-Protocol-Version header before protocol_version is set" do
+      stub = stub_request(:post, url)
+        .with { |req| !req.headers.key?("Mcp-Protocol-Version") }
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 1, result: {} })
+        )
+
+      transport.request({ jsonrpc: "2.0", id: 1, method: "initialize" })
+
+      expect(stub).to have_been_requested
+    end
+
+    it "sends MCP-Protocol-Version header after protocol_version is set" do
+      # First request without the header
+      stub_request(:post, url)
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 1, result: {} })
+        )
+
+      transport.request({ jsonrpc: "2.0", id: 1, method: "initialize" })
+
+      transport.protocol_version = "2025-11-25"
+
+      second_stub = stub_request(:post, url)
+        .with(headers: { "Mcp-Protocol-Version" => "2025-11-25" })
+        .to_return(
+          status: 200,
+          headers: { "Content-Type" => "application/json" },
+          body: JSON.generate({ jsonrpc: "2.0", id: 2, result: { tools: [] } })
+        )
+
+      transport.request({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+
+      expect(second_stub).to have_been_requested
+    end
+  end
+
   describe "#terminate_session" do
     it "sends DELETE request with session id header" do
       auth_obj = Manceps::Auth::Bearer.new("tok")

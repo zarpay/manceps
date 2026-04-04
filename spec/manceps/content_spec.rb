@@ -25,6 +25,19 @@ RSpec.describe Manceps::Content do
       expect(content).not_to be_text
       expect(content).not_to be_image
     end
+
+    it "resource_link? returns true for resource_link type" do
+      content = described_class.new(
+        "type" => "resource_link",
+        "uri" => "file:///tmp/foo.txt",
+        "resource" => {"uri" => "file:///tmp/foo.txt", "mimeType" => "text/plain"}
+      )
+
+      expect(content).to be_resource_link
+      expect(content).not_to be_resource
+      expect(content).not_to be_text
+      expect(content).not_to be_image
+    end
   end
 
   describe "field extraction" do
@@ -42,6 +55,17 @@ RSpec.describe Manceps::Content do
       expect(content.data).to eq("base64data")
       expect(content.mime_type).to eq("image/jpeg")
       expect(content.uri).to eq("https://example.com/image.jpg")
+    end
+
+    it "extracts resource field for resource_link type" do
+      resource_data = {"uri" => "file:///data.json", "mimeType" => "application/json"}
+      content = described_class.new(
+        "type" => "resource_link",
+        "uri" => "file:///data.json",
+        "resource" => resource_data
+      )
+
+      expect(content.resource).to eq(resource_data)
     end
   end
 end
