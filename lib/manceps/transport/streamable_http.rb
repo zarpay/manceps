@@ -4,6 +4,7 @@ require "json"
 module Manceps
   module Transport
     class StreamableHTTP < Base
+      attr_reader :session_id
       attr_writer :protocol_version
 
       def initialize(url, auth:, timeout: nil)
@@ -41,7 +42,7 @@ module Manceps
         handle_error_response(response)
         capture_session_id(response)
 
-        content_type = response.content_type.mime_type
+        content_type = response.content_type&.mime_type.to_s
 
         if content_type.include?("text/event-stream")
           events = SSEParser.parse_events(response.body.to_s)
@@ -84,7 +85,7 @@ module Manceps
         response = @http.get(@url, headers: headers)
         handle_error_response(response)
 
-        content_type = response.content_type.mime_type
+        content_type = response.content_type&.mime_type.to_s
         return unless content_type.include?("text/event-stream")
 
         events = SSEParser.parse_events(response.body.to_s)
@@ -115,13 +116,15 @@ module Manceps
 
       def parse_response(response)
         body = response.body.to_s
-        content_type = response.content_type.mime_type
+        content_type = response.content_type&.mime_type.to_s
 
         if content_type.include?("text/event-stream")
           SSEParser.extract_json(body)
         else
           JSON.parse(body)
         end
+      rescue JSON::ParserError => e
+        raise ProtocolError.new("Invalid JSON in response: #{e.message}")
       end
 
       def capture_session_id(response)
@@ -135,7 +138,7 @@ module Manceps
       end
 
       def track_event_ids_from_response(response)
-        content_type = response.content_type.mime_type
+        content_type = response.content_type&.mime_type.to_s
         return unless content_type.include?("text/event-stream")
 
         events = SSEParser.parse_events(response.body.to_s)

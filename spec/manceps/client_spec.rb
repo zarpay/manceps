@@ -372,6 +372,20 @@ RSpec.describe Manceps::Client do
 
       expect(client.session.active?).to be false
     end
+
+    it "sends terminate_session with the transport's session ID (not nil)" do
+      stub_initialize
+      stub_initialized_notification
+      delete_stub = stub_request(:delete, url)
+        .with(headers: { "Mcp-Session-Id" => "test-session-123" })
+        .to_return(status: 200)
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      client.disconnect
+
+      expect(delete_stub).to have_been_requested
+    end
   end
 
   describe ".open" do
@@ -457,6 +471,45 @@ RSpec.describe Manceps::Client do
       client = described_class.new(url, auth: auth)
 
       expect { client.connect }.to raise_error(Manceps::ProtocolError, "Invalid protocol version")
+    end
+
+    it "raises ProtocolError from symbol-keyed error response" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      response = { error: { code: -32601, message: "Method not found", data: "extra" } }
+
+      expect { client.send(:handle_rpc_error, response) }.to raise_error(Manceps::ProtocolError) do |err|
+        expect(err.message).to eq("Method not found")
+        expect(err.code).to eq(-32601)
+        expect(err.data).to eq("extra")
+      end
+    end
+
+    it "raises with default message when error has no message" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      response = { "error" => { "code" => -32000 } }
+
+      expect { client.send(:handle_rpc_error, response) }.to raise_error(Manceps::ProtocolError, "Unknown JSON-RPC error")
+    end
+
+    it "does not raise when response has no error key" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      response = { "result" => { "tools" => [] } }
+
+      expect { client.send(:handle_rpc_error, response) }.not_to raise_error
+    end
+
+    it "does not raise when response is not a Hash" do
+      client = described_class.new(url, auth: auth)
+      client.connect
+
+      expect { client.send(:handle_rpc_error, nil) }.not_to raise_error
+      expect { client.send(:handle_rpc_error, "string") }.not_to raise_error
     end
   end
 
@@ -896,6 +949,28 @@ RSpec.describe Manceps::Client do
       allow(client).to receive(:sleep)
 
       expect { client.connect }.to raise_error(Manceps::ConnectionError)
+    end
+
+    it "closes transport before each retry" do
+      client = described_class.new(url, auth: auth, max_retries: 3)
+      transport = client.instance_variable_get(:@transport)
+
+      attempt = 0
+      allow(transport).to receive(:request) do |body|
+        attempt += 1
+        if attempt <= 2
+          raise Manceps::ConnectionError, "Connection refused"
+        else
+          JSON.parse(init_response_body)
+        end
+      end
+      allow(transport).to receive(:notify)
+      allow(transport).to receive(:close)
+      allow(client).to receive(:sleep)
+
+      client.connect
+
+      expect(transport).to have_received(:close).exactly(2).times
     end
   end
 

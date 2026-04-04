@@ -54,7 +54,11 @@ module Manceps
         response = http.get(well_known_url)
         raise Manceps::AuthenticationError, "OAuth discovery failed (HTTP #{response.status}): #{well_known_url}" if response.status >= 400
 
-        metadata = JSON.parse(response.body.to_s)
+        metadata = begin
+          JSON.parse(response.body.to_s)
+        rescue JSON::ParserError
+          raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
+        end
 
         discovery = Discovery.new(
           authorization_url: metadata["authorization_endpoint"],
@@ -80,7 +84,11 @@ module Manceps
 
           raise Manceps::AuthenticationError, "Client registration failed (HTTP #{reg_response.status})" if reg_response.status >= 400
 
-          reg_data = JSON.parse(reg_response.body.to_s)
+          reg_data = begin
+            JSON.parse(reg_response.body.to_s)
+          rescue JSON::ParserError
+            raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{reg_response.body.to_s[0..200]}"
+          end
           raise Manceps::AuthenticationError, "Client registration failed: #{reg_data['error']}" unless reg_data["client_id"]
 
           discovery.client_id = reg_data["client_id"]
@@ -125,7 +133,11 @@ module Manceps
           body: URI.encode_www_form(body)
         )
 
-        data = JSON.parse(response.body.to_s)
+        data = begin
+          JSON.parse(response.body.to_s)
+        rescue JSON::ParserError
+          raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
+        end
         raise Manceps::AuthenticationError, "Token exchange failed: #{data['error_description'] || data['error'] || 'no access_token'}" unless data["access_token"]
 
         data
@@ -163,7 +175,11 @@ module Manceps
             body: URI.encode_www_form(body)
           )
 
-          data = JSON.parse(response.body.to_s)
+          data = begin
+            JSON.parse(response.body.to_s)
+          rescue JSON::ParserError
+            raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
+          end
           raise Manceps::AuthenticationError, "Token refresh failed: #{data['error'] || 'no access_token in response'}" unless data["access_token"]
 
           @access_token = data["access_token"]

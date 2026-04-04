@@ -33,6 +33,24 @@ RSpec.describe Manceps::Transport::Stdio do
     ensure
       transport&.close
     end
+
+    it "cleans up the first process when called twice" do
+      transport = described_class.new("ruby", args: [script_path])
+      transport.open
+
+      first_pid = transport.instance_variable_get(:@wait_thread).pid
+
+      transport.open
+
+      second_pid = transport.instance_variable_get(:@wait_thread).pid
+
+      expect(second_pid).not_to eq(first_pid)
+
+      # The first process should have been terminated
+      expect { Process.kill(0, first_pid) }.to raise_error(Errno::ESRCH)
+    ensure
+      transport&.close
+    end
   end
 
   describe "#request" do

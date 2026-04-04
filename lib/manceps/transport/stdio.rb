@@ -17,6 +17,8 @@ module Manceps
       end
 
       def open
+        close if @wait_thread  # Clean up any existing process
+
         @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(@env, @command, *@args)
 
         at_exit { close }

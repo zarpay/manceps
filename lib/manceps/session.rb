@@ -11,12 +11,12 @@ module Manceps
     end
 
     def establish(response)
-      result = response[:result] || response["result"] || {}
-      @id = response[:session_id] || response[:sessionId] ||
-            response["session_id"] || response["sessionId"]
-      @capabilities = result[:capabilities] || result["capabilities"] || {}
-      @protocol_version = result[:protocolVersion] || result["protocolVersion"]
-      @server_info = result[:serverInfo] || result["serverInfo"]
+      result = response["result"] || response[:result] || {}
+      @id = response["session_id"] || response["sessionId"] ||
+            response[:session_id] || response[:sessionId]
+      @capabilities = result["capabilities"] || result[:capabilities] || {}
+      @protocol_version = result["protocolVersion"] || result[:protocolVersion]
+      @server_info = result["serverInfo"] || result[:serverInfo]
       @established = true
     end
 

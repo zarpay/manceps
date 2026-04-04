@@ -348,6 +348,23 @@ RSpec.describe Manceps::Auth::OAuth do
       expect(stub).to have_been_requested
     end
 
+    it "raises AuthenticationError when token endpoint returns non-JSON response" do
+      stub_request(:post, exchange_url).to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/html" },
+        body: "<html>500 Internal Server Error</html>"
+      )
+
+      expect {
+        described_class.exchange_code(
+          token_url: exchange_url,
+          client_id: "my-client",
+          code: "auth-code",
+          redirect_uri: "https://app.example.com/callback"
+        )
+      }.to raise_error(Manceps::AuthenticationError, /Invalid response from server \(not JSON\)/)
+    end
+
     it "raises AuthenticationError when no access_token in response" do
       stub_request(:post, exchange_url).to_return(
         status: 200,
@@ -457,6 +474,40 @@ RSpec.describe Manceps::Auth::OAuth do
       expect {
         described_class.discover(server_url, redirect_uri: "https://app.example.com/callback")
       }.to raise_error(Manceps::AuthenticationError, /Client registration failed/)
+    end
+
+    it "raises AuthenticationError when discovery returns non-JSON response" do
+      stub_request(:get, well_known_url).to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/html" },
+        body: "<html><body>Internal Server Error</body></html>"
+      )
+
+      expect {
+        described_class.discover(server_url, redirect_uri: "https://app.example.com/callback")
+      }.to raise_error(Manceps::AuthenticationError, /Invalid response from server \(not JSON\)/)
+    end
+
+    it "raises AuthenticationError when registration returns non-JSON response" do
+      stub_request(:get, well_known_url).to_return(
+        status: 200,
+        headers: { "Content-Type" => "application/json" },
+        body: JSON.generate({
+          "authorization_endpoint" => "https://mcp.example.com/authorize",
+          "token_endpoint" => "https://mcp.example.com/token",
+          "registration_endpoint" => "https://mcp.example.com/register"
+        })
+      )
+
+      stub_request(:post, "https://mcp.example.com/register").to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/html" },
+        body: "<html>Server Error</html>"
+      )
+
+      expect {
+        described_class.discover(server_url, redirect_uri: "https://app.example.com/callback")
+      }.to raise_error(Manceps::AuthenticationError, /Invalid response from server \(not JSON\)/)
     end
 
     it "handles non-standard ports in the well-known URL" do

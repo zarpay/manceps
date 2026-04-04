@@ -17,7 +17,7 @@ RSpec.describe Manceps::Session do
   end
 
   describe "#establish" do
-    it "extracts session data from response" do
+    it "extracts session data from symbol-keyed response" do
       response = {
         sessionId: "sess-abc",
         result: {
@@ -35,10 +35,38 @@ RSpec.describe Manceps::Session do
       expect(session.server_info).to eq(name: "TestServer", version: "1.0")
     end
 
+    it "extracts session data from string-keyed response" do
+      response = {
+        "sessionId" => "sess-def",
+        "result" => {
+          "capabilities" => {"tools" => {}},
+          "protocolVersion" => "2025-03-26",
+          "serverInfo" => {"name" => "TestServer", "version" => "1.0"}
+        }
+      }
+
+      session.establish(response)
+
+      expect(session.id).to eq("sess-def")
+      expect(session.capabilities).to eq("tools" => {})
+      expect(session.protocol_version).to eq("2025-03-26")
+      expect(session.server_info).to eq("name" => "TestServer", "version" => "1.0")
+    end
+
     it "is active after establish" do
       session.establish(sessionId: "s1", result: {})
 
       expect(session).to be_active
+    end
+
+    it "defaults to empty hash when result is missing" do
+      session.establish({})
+
+      expect(session).to be_active
+      expect(session.id).to be_nil
+      expect(session.capabilities).to eq({})
+      expect(session.protocol_version).to be_nil
+      expect(session.server_info).to be_nil
     end
   end
 

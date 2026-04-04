@@ -433,6 +433,58 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
     end
   end
 
+  describe "defensive error handling" do
+    it "does not crash when Content-Type header is missing" do
+      stub_request(:post, url).to_return(
+        status: 200,
+        body: JSON.generate({ jsonrpc: "2.0", id: 1, result: {} })
+      )
+
+      result = transport.request({ jsonrpc: "2.0", id: 1, method: "initialize" })
+
+      expect(result).to be_a(Hash)
+      expect(result["jsonrpc"]).to eq("2.0")
+    end
+
+    it "raises ProtocolError when response body is HTML on 200" do
+      stub_request(:post, url).to_return(
+        status: 200,
+        headers: { "Content-Type" => "text/html" },
+        body: "<html><body>Bad Gateway</body></html>"
+      )
+
+      expect {
+        transport.request({ jsonrpc: "2.0", id: 1, method: "initialize" })
+      }.to raise_error(Manceps::ProtocolError, /Invalid JSON in response/)
+    end
+
+    it "does not crash in request_streaming when Content-Type is missing" do
+      stub_request(:post, url).to_return(
+        status: 200,
+        body: JSON.generate({ jsonrpc: "2.0", id: 1, result: { content: [] } })
+      )
+
+      result = transport.request_streaming(
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "tool" } }
+      ) { |_| }
+
+      expect(result).to be_a(Hash)
+      expect(result["result"]["content"]).to eq([])
+    end
+
+    it "does not crash in listen when Content-Type is missing" do
+      stub_request(:get, url).to_return(
+        status: 200,
+        body: JSON.generate({ jsonrpc: "2.0", id: 1, result: {} })
+      )
+
+      received = []
+      transport.listen { |n| received << n }
+
+      expect(received).to be_empty
+    end
+  end
+
   describe "#terminate_session" do
     it "sends DELETE request with session id header" do
       auth_obj = Manceps::Auth::Bearer.new("tok")

@@ -44,6 +44,8 @@ module Manceps
         self
       rescue ConnectionError, TimeoutError => e
         attempts += 1
+        @transport.close if @transport.respond_to?(:close)
+        @session.reset
         raise if attempts > @max_retries
         sleep @backoff.next_delay
         retry
@@ -51,7 +53,8 @@ module Manceps
     end
 
     def disconnect
-      @transport.terminate_session(@session.id) if @session.active?
+      sid = @transport.respond_to?(:session_id) ? @transport.session_id : @session.id
+      @transport.terminate_session(sid) if sid
       @transport.close
       @session.reset
     end
@@ -268,13 +271,15 @@ module Manceps
     end
 
     def handle_rpc_error(response)
-      return unless response.is_a?(Hash) && response["error"]
+      return unless response.is_a?(Hash)
 
-      error = response["error"]
+      error = response["error"] || response[:error]
+      return unless error
+
       raise ProtocolError.new(
-        error["message"] || "Unknown JSON-RPC error",
-        code: error["code"],
-        data: error["data"]
+        error["message"] || error[:message] || "Unknown JSON-RPC error",
+        code: error["code"] || error[:code],
+        data: error["data"] || error[:data]
       )
     end
   end
