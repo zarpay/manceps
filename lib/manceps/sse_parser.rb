@@ -1,4 +1,6 @@
-require "json"
+# frozen_string_literal: true
+
+require 'json'
 
 module Manceps
   module SSEParser
@@ -8,7 +10,7 @@ module Manceps
       return nil if body.nil? || body.strip.empty?
 
       data_lines = body.each_line.filter_map do |line|
-        line.strip.start_with?("data:") ? line.strip.sub(/\Adata:\s?/, "") : nil
+        line.strip.start_with?('data:') ? line.strip.sub(/\Adata:\s?/, '') : nil
       end
 
       return nil if data_lines.empty?
@@ -20,7 +22,7 @@ module Manceps
       return [] if body.nil? || body.strip.empty?
 
       events = []
-      current = {id: nil, event: nil, data: []}
+      current = { id: nil, event: nil, data: [] }
 
       body.each_line do |raw_line|
         line = raw_line.chomp
@@ -33,16 +35,16 @@ module Manceps
               data: current[:data].join("\n")
             }
           end
-          current = {id: nil, event: nil, data: []}
+          current = { id: nil, event: nil, data: [] }
           next
         end
 
-        if line.start_with?("id:")
-          current[:id] = line.sub(/\Aid:\s?/, "")
-        elsif line.start_with?("event:")
-          current[:event] = line.sub(/\Aevent:\s?/, "")
-        elsif line.start_with?("data:")
-          current[:data] << line.sub(/\Adata:\s?/, "")
+        if line.start_with?('id:')
+          current[:id] = line.sub(/\Aid:\s?/, '')
+        elsif line.start_with?('event:')
+          current[:event] = line.sub(/\Aevent:\s?/, '')
+        elsif line.start_with?('data:')
+          current[:data] << line.sub(/\Adata:\s?/, '')
         end
       end
 

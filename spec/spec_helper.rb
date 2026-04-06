@@ -1,6 +1,8 @@
-require "manceps"
-require "webmock/rspec"
-require "httpx/adapters/webmock"
+# frozen_string_literal: true
+
+require 'manceps'
+require 'webmock/rspec'
+require 'httpx/adapters/webmock'
 
 WebMock.disable_net_connect!
 

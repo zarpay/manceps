@@ -1,5 +1,7 @@
-require "open3"
-require "json"
+# frozen_string_literal: true
+
+require 'open3'
+require 'json'
 
 module Manceps
   module Transport
@@ -17,7 +19,7 @@ module Manceps
       end
 
       def open
-        close if @wait_thread  # Clean up any existing process
+        close if @wait_thread # Clean up any existing process
 
         @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(@env, @command, *@args)
 
@@ -44,32 +46,61 @@ module Manceps
       end
 
       def listen(&block)
-        raise ConnectionError, "Stdio transport not open" unless @stdout
+        raise ConnectionError, 'Stdio transport not open' unless @stdout
 
         loop do
           line = @stdout.gets
           break if line.nil?
-          parsed = JSON.parse(line) rescue next
-          block.call(parsed) if parsed["method"]
+
+          parsed = begin
+            JSON.parse(line)
+          rescue StandardError
+            next
+          end
+          block.call(parsed) if parsed['method']
         end
       end
 
       def close
         return unless @wait_thread
 
-        @stdin&.close rescue nil
+        begin
+          @stdin&.close
+        rescue StandardError
+          nil
+        end
 
         if @wait_thread.alive?
-          Process.kill("TERM", @wait_thread.pid) rescue nil
+          begin
+            Process.kill('TERM', @wait_thread.pid)
+          rescue StandardError
+            nil
+          end
 
           unless @wait_thread.join(5)
-            Process.kill("KILL", @wait_thread.pid) rescue nil
-            @wait_thread.join(1) rescue nil
+            begin
+              Process.kill('KILL', @wait_thread.pid)
+            rescue StandardError
+              nil
+            end
+            begin
+              @wait_thread.join(1)
+            rescue StandardError
+              nil
+            end
           end
         end
 
-        @stdout&.close rescue nil
-        @stderr&.close rescue nil
+        begin
+          @stdout&.close
+        rescue StandardError
+          nil
+        end
+        begin
+          @stderr&.close
+        rescue StandardError
+          nil
+        end
         @stdin = nil
         @stdout = nil
         @stderr = nil
@@ -79,33 +110,31 @@ module Manceps
       private
 
       def write_message(body)
-        raise ConnectionError, "Stdio transport not open" unless @stdin
+        raise ConnectionError, 'Stdio transport not open' unless @stdin
 
         json = JSON.generate(body)
-        @stdin.write(json + "\n")
+        @stdin.write("#{json}\n")
         @stdin.flush
       rescue Errno::EPIPE
-        raise ConnectionError, "Process exited unexpectedly"
+        raise ConnectionError, 'Process exited unexpectedly'
       end
 
       def read_response
-        raise ConnectionError, "Stdio transport not open" unless @stdout
+        raise ConnectionError, 'Stdio transport not open' unless @stdout
 
         loop do
           line = @stdout.gets
-          raise ConnectionError, "Process exited unexpectedly" if line.nil?
+          raise ConnectionError, 'Process exited unexpectedly' if line.nil?
 
           parsed = JSON.parse(line)
 
-          if parsed["method"] && !parsed.key?("id")
-            # This is a server-initiated notification; dispatch and keep reading
-            @notification_callback&.call(parsed)
-          else
-            return parsed
-          end
+          return parsed unless parsed['method'] && !parsed.key?('id')
+
+          # This is a server-initiated notification; dispatch and keep reading
+          @notification_callback&.call(parsed)
         end
       rescue JSON::ParserError => e
-        raise ProtocolError.new("Invalid JSON from process: #{e.message}")
+        raise ProtocolError, "Invalid JSON from process: #{e.message}"
       end
     end
   end

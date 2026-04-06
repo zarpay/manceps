@@ -1,5 +1,7 @@
-require "httpx"
-require "json"
+# frozen_string_literal: true
+
+require 'httpx'
+require 'json'
 
 module Manceps
   module Transport
@@ -44,16 +46,20 @@ module Manceps
 
         content_type = response.content_type&.mime_type.to_s
 
-        if content_type.include?("text/event-stream")
+        if content_type.include?('text/event-stream')
           events = SSEParser.parse_events(response.body.to_s)
           track_event_ids(events)
           final_result = nil
           events.each do |event|
-            parsed = JSON.parse(event[:data]) rescue next
-            if parsed["result"] || parsed["error"]
+            parsed = begin
+              JSON.parse(event[:data])
+            rescue StandardError
+              next
+            end
+            if parsed['result'] || parsed['error']
               final_result = parsed
-            else
-              block.call(parsed) if block
+            elsif block
+              block.call(parsed)
             end
           end
           final_result || parse_response(response)
@@ -72,26 +78,34 @@ module Manceps
 
       def terminate_session(session_id)
         headers = {}
-        headers["mcp-session-id"] = session_id
+        headers['mcp-session-id'] = session_id
         @auth.apply(headers)
-        @http.delete(@url, headers: headers) rescue nil # 405 is acceptable per spec
+        begin
+          @http.delete(@url, headers: headers)
+        rescue StandardError
+          nil
+        end
       end
 
       def listen(&block)
         headers = base_headers.dup
-        headers.delete("content-type")
-        headers["accept"] = "text/event-stream"
+        headers.delete('content-type')
+        headers['accept'] = 'text/event-stream'
 
         response = @http.get(@url, headers: headers)
         handle_error_response(response)
 
         content_type = response.content_type&.mime_type.to_s
-        return unless content_type.include?("text/event-stream")
+        return unless content_type.include?('text/event-stream')
 
         events = SSEParser.parse_events(response.body.to_s)
         events.each do |event|
-          parsed = JSON.parse(event[:data]) rescue next
-          block.call(parsed) if parsed["method"]
+          parsed = begin
+            JSON.parse(event[:data])
+          rescue StandardError
+            next
+          end
+          block.call(parsed) if parsed['method']
         end
       end
 
@@ -104,12 +118,12 @@ module Manceps
 
       def base_headers
         headers = {
-          "content-type" => "application/json",
-          "accept" => "application/json, text/event-stream"
+          'content-type' => 'application/json',
+          'accept' => 'application/json, text/event-stream'
         }
-        headers["mcp-session-id"] = @session_id if @session_id
-        headers["mcp-protocol-version"] = @protocol_version if @protocol_version
-        headers["last-event-id"] = @last_event_id if @last_event_id
+        headers['mcp-session-id'] = @session_id if @session_id
+        headers['mcp-protocol-version'] = @protocol_version if @protocol_version
+        headers['last-event-id'] = @last_event_id if @last_event_id
         @auth.apply(headers)
         headers
       end
@@ -118,17 +132,17 @@ module Manceps
         body = response.body.to_s
         content_type = response.content_type&.mime_type.to_s
 
-        if content_type.include?("text/event-stream")
+        if content_type.include?('text/event-stream')
           SSEParser.extract_json(body)
         else
           JSON.parse(body)
         end
       rescue JSON::ParserError => e
-        raise ProtocolError.new("Invalid JSON in response: #{e.message}")
+        raise ProtocolError, "Invalid JSON in response: #{e.message}"
       end
 
       def capture_session_id(response)
-        sid = response.headers["mcp-session-id"]
+        sid = response.headers['mcp-session-id']
         @session_id = sid if sid
       end
 
@@ -139,23 +153,23 @@ module Manceps
 
       def track_event_ids_from_response(response)
         content_type = response.content_type&.mime_type.to_s
-        return unless content_type.include?("text/event-stream")
+        return unless content_type.include?('text/event-stream')
 
         events = SSEParser.parse_events(response.body.to_s)
         track_event_ids(events)
       end
 
       def handle_connection_error(response)
-        if response.is_a?(HTTPX::ErrorResponse)
-          error = response.error
-          case error
-          when Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH
-            raise ConnectionError, error.message
-          when HTTPX::TimeoutError
-            raise TimeoutError, error.message
-          else
-            raise ConnectionError, error.message
-          end
+        return unless response.is_a?(HTTPX::ErrorResponse)
+
+        error = response.error
+        case error
+        when Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH
+          raise ConnectionError, error.message
+        when HTTPX::TimeoutError
+          raise TimeoutError, error.message
+        else
+          raise ConnectionError, error.message
         end
       end
 
@@ -166,7 +180,7 @@ module Manceps
         when 401
           raise AuthenticationError, "Server returned 401: #{response.body}"
         when 404
-          raise SessionExpiredError, "Session expired (404)"
+          raise SessionExpiredError, 'Session expired (404)'
         else
           raise ConnectionError, "HTTP #{response.status}: #{response.body}"
         end
