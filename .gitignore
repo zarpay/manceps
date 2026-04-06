@@ -18,6 +18,12 @@ Gemfile.lock
 *.swo
 *~
 
+# Announcements (not for repo)
+/announcements/
+
+# Built gems
+*.gem
+
 # OS
 .DS_Store
 Thumbs.db

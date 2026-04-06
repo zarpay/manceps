@@ -26,7 +26,6 @@ require_relative "manceps/auth/oauth"
 require_relative "manceps/transport/base"
 require_relative "manceps/transport/streamable_http"
 require_relative "manceps/transport/stdio"
-require_relative "manceps/batch"
 require_relative "manceps/task"
 require_relative "manceps/client"
 

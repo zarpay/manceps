@@ -158,13 +158,6 @@ module Manceps
       @elicitation_handler = block
     end
 
-    def batch
-      b = Batch.new(self)
-      yield b
-      b.execute
-      b
-    end
-
     # --- Tasks (experimental, protocol 2025-11-25) ---
 
     def tasks
@@ -222,10 +215,6 @@ module Manceps
         response = JsonRpc.response(request_data["id"], result)
         @transport.notify(response)
       end
-    end
-
-    def transport_batch_request(batch_body)
-      @transport.request(batch_body)
     end
 
     MAX_PAGES = 100

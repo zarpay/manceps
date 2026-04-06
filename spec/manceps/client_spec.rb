@@ -974,60 +974,6 @@ RSpec.describe Manceps::Client do
     end
   end
 
-  describe "#batch" do
-    before do
-      stub_initialize
-      stub_initialized_notification
-    end
-
-    it "yields a Batch, executes it, and returns the Batch" do
-      stub_request(:post, url)
-        .with { |req| JSON.parse(req.body).is_a?(Array) }
-        .to_return(
-          status: 200,
-          headers: { "Content-Type" => "application/json" },
-          body: JSON.generate([
-            { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "sunny" }] } }
-          ])
-        )
-
-      client = described_class.new(url, auth: auth)
-      client.connect
-
-      result = client.batch do |b|
-        b.call_tool("get_weather", location: "NYC")
-      end
-
-      expect(result).to be_a(Manceps::Batch)
-      expect(result.results.length).to eq(1)
-    end
-
-    it "makes batch results accessible after the block returns" do
-      client = described_class.new(url, auth: auth)
-      client.connect
-
-      # We need to capture the IDs inside the block, then check results outside
-      weather_id = nil
-
-      stub_request(:post, url)
-        .with { |req| JSON.parse(req.body).is_a?(Array) }
-        .to_return(
-          status: 200,
-          headers: { "Content-Type" => "application/json" },
-          body: JSON.generate([
-            { jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: "rainy" }] } }
-          ])
-        )
-
-      batch = client.batch do |b|
-        weather_id = b.call_tool("get_weather", location: "London")
-      end
-
-      expect(batch[weather_id]).to be_a(Manceps::ToolResult)
-      expect(batch[weather_id].text).to eq("rainy")
-    end
-  end
-
   describe "transport selection" do
     it "uses StreamableHTTP for http:// URLs" do
       client = described_class.new("http://localhost:3000/mcp")

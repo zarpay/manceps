@@ -17,7 +17,7 @@ Or install directly:
 gem install manceps
 ```
 
-Requires Ruby >= 3.2.0.
+Requires Ruby >= 3.4.0.
 
 ## Quick Start
 
@@ -78,9 +78,9 @@ auth = Manceps::Auth::Bearer.new("your-token")
 auth = Manceps::Auth::ApiKeyHeader.new("x-api-key", "your-key")
 ```
 
-### OAuth 2.1
+### OAuth 2.1 (Experimental)
 
-Full OAuth flow with RFC 8414 discovery, RFC 7591 dynamic registration, PKCE, and automatic token refresh.
+RFC 8414 discovery, RFC 7591 dynamic registration, PKCE, and automatic token refresh. Works but not yet tested against a wide range of authorization servers.
 
 ```ruby
 # If you already have tokens
@@ -226,11 +226,11 @@ end
 
 **Persistent connections.** MCP servers bind sessions to TCP connections. Manceps uses httpx to keep connections alive across requests, which most HTTP libraries don't do by default.
 
-**Auth-first.** Bearer, API key, and OAuth 2.1 (with PKCE and auto-refresh) are built in, not bolted on.
+**Auth-first.** Bearer, API key, and OAuth 2.1 (experimental) are built in, not bolted on.
 
 **No LLM coupling.** Pure protocol client. No `to_openai_tools()` or framework integrations -- use it with anything.
 
-**Extracted from production.** The protocol handling and OAuth flows come from [Agora](https://github.com/zarpay/agentus), where MCP connections run under real load.
+**Extracted from production.** Built and tested under real MCP load, not just spec examples.
 
 **Full 2025-11-25 spec.** Protocol version negotiation, elicitation, tasks, structured tool output, `MCP-Protocol-Version` header -- not just the basics.
 
@@ -290,18 +290,6 @@ puts task.result
 
 # Cancel a task
 client.cancel_task("task-123")
-```
-
-## Batch Requests (Deprecated)
-
-> JSON-RPC batching was removed from the MCP spec in 2025-06-18. This feature emits a deprecation warning and will be removed in a future version.
-
-```ruby
-batch = client.batch do |b|
-  weather_id = b.call_tool("get_weather", location: "NYC")
-  readme_id = b.read_resource("file:///README.md")
-end
-batch[weather_id]  # => ToolResult
 ```
 
 ## Resilience
