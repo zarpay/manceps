@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # An MCP tool definition.
   class Tool
     attr_reader :name, :description, :input_schema, :output_schema, :annotations, :title
 

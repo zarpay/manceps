@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # MCP protocol client supporting tools, resources, prompts, and notifications.
   class Client
     attr_reader :session
 
@@ -77,7 +78,7 @@ module Manceps
       false
     end
 
-    def tools(force: false)
+    def tools(force: false) # rubocop:disable Lint/UnusedMethodArgument
       paginate_with_retry('tools/list', 'tools') { |data| Tool.new(data) }
     end
 
@@ -102,7 +103,7 @@ module Manceps
       ToolResult.new(response['result'])
     end
 
-    def prompts(force: false)
+    def prompts(force: false) # rubocop:disable Lint/UnusedMethodArgument
       paginate_with_retry('prompts/list', 'prompts') { |data| Prompt.new(data) }
     end
 
@@ -111,7 +112,7 @@ module Manceps
       PromptResult.new(response['result'])
     end
 
-    def resources(force: false)
+    def resources(force: false) # rubocop:disable Lint/UnusedMethodArgument
       paginate_with_retry('resources/list', 'resources') { |data| Resource.new(data) }
     end
 
@@ -171,7 +172,7 @@ module Manceps
       Task.new(response['result'])
     end
 
-    def cancel_task(task_id)
+    def cancel_task(task_id) # rubocop:disable Naming/PredicateMethod
       request('tasks/cancel', taskId: task_id)
       true
     end
@@ -191,13 +192,15 @@ module Manceps
       end
     end
 
-    def self.open(url, **options)
-      client = new(url, **options)
+    def self.open(url, **)
+      client = new(url, **)
       client.connect
       yield client
     ensure
       client&.disconnect
     end
+
+    MAX_PAGES = 100
 
     private
 
@@ -219,8 +222,6 @@ module Manceps
       end
     end
 
-    MAX_PAGES = 100
-
     def request(method, **params)
       body = JsonRpc.request(@session.next_id, method, params)
       response = @transport.request(body)
@@ -235,7 +236,7 @@ module Manceps
       request(method, **params)
     end
 
-    def paginate(method, items_key, &block)
+    def paginate(method, items_key, &)
       results = []
       cursor = nil
       pages = 0
@@ -244,7 +245,7 @@ module Manceps
         params = cursor ? { cursor: cursor } : {}
         response = request(method, **params)
         items = response.dig('result', items_key) || []
-        results.concat(items.map(&block))
+        results.concat(items.map(&))
 
         cursor = response.dig('result', 'nextCursor')
         pages += 1
@@ -254,11 +255,11 @@ module Manceps
       results
     end
 
-    def paginate_with_retry(method, items_key, &block)
-      paginate(method, items_key, &block)
+    def paginate_with_retry(method, items_key, &)
+      paginate(method, items_key, &)
     rescue SessionExpiredError
       reconnect!
-      paginate(method, items_key, &block)
+      paginate(method, items_key, &)
     end
 
     def handle_rpc_error(response)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # An MCP resource definition.
   class Resource
     attr_reader :uri, :name, :description, :mime_type, :annotations, :title
 

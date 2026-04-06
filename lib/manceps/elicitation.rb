@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Server-initiated request for additional user input.
   class Elicitation
     attr_reader :id, :message, :requested_schema
 

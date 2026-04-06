@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Result of a prompt/get request.
   class PromptResult
     attr_reader :description, :messages
 
@@ -9,6 +10,7 @@ module Manceps
       @messages = (data['messages'] || []).map { |m| Message.new(m) }
     end
 
+    # A single message within a prompt result.
     class Message
       attr_reader :role, :content
 

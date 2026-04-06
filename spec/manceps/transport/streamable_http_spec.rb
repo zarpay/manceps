@@ -284,7 +284,7 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
       stub_request(:get, url).to_return(status: 401, body: 'Unauthorized')
 
       expect do
-        transport.listen {}
+        transport.listen { nil }
       end.to raise_error(Manceps::AuthenticationError)
     end
 
@@ -310,7 +310,7 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
                    body: ''
                  )
 
-      transport.listen {}
+      transport.listen { nil }
 
       expect(get_stub).to have_been_requested
     end
@@ -362,7 +362,7 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
 
       transport.request_streaming(
         { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'tool' } }
-      ) { |_| }
+      ) { |_event| nil }
 
       second_stub = stub_request(:post, url)
                     .with(headers: { 'Last-Event-Id' => 'evt-2' })
@@ -468,7 +468,7 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
 
       result = transport.request_streaming(
         { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tool' } }
-      ) { |_| }
+      ) { |_event| nil }
 
       expect(result).to be_a(Hash)
       expect(result['result']['content']).to eq([])

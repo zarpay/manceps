@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # A single content item returned by an MCP tool or prompt.
   class Content
     attr_reader :type, :text, :data, :mime_type, :uri, :resource
 

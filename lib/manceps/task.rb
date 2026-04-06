@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # An MCP task for tracking long-running operations.
   class Task
     attr_reader :id, :status, :result, :error, :metadata
 

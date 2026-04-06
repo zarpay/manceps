@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Contents returned from a resource read.
   class ResourceContents
     attr_reader :contents
 

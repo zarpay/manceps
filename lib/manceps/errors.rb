@@ -6,6 +6,7 @@ module Manceps
   class ConnectionError < Error; end
   class TimeoutError < Error; end
 
+  # JSON-RPC error from the MCP server.
   class ProtocolError < Error
     attr_reader :code, :data
 
@@ -19,6 +20,7 @@ module Manceps
   class AuthenticationError < Error; end
   class SessionExpiredError < Error; end
 
+  # Error raised when a tool invocation fails.
   class ToolError < Error
     attr_reader :result
 

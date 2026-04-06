@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # An MCP resource template definition.
   class ResourceTemplate
     attr_reader :uri_template, :name, :description, :mime_type, :annotations, :title
 

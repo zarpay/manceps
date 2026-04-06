@@ -2,6 +2,7 @@
 
 module Manceps
   module Auth
+    # Authenticates requests with a Bearer token.
     class Bearer
       def initialize(token)
         @token = token

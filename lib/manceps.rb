@@ -31,6 +31,7 @@ require_relative 'manceps/transport/stdio'
 require_relative 'manceps/task'
 require_relative 'manceps/client'
 
+# Ruby client for the Model Context Protocol (MCP).
 module Manceps
   Configuration = Struct.new(
     :client_name,

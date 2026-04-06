@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Result of a tool invocation.
   class ToolResult
     attr_reader :content, :is_error, :structured_content
 

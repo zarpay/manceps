@@ -3,6 +3,7 @@
 require 'json'
 
 module Manceps
+  # JSON-RPC 2.0 message construction helpers.
   module JsonRpc
     module_function
 

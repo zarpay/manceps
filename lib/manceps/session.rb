@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Tracks MCP session state and protocol negotiation.
   class Session
     attr_reader :id, :capabilities, :protocol_version, :server_info
 

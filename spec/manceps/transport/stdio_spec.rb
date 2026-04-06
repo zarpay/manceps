@@ -23,7 +23,7 @@ RSpec.describe Manceps::Transport::Stdio do
   end
 
   after do
-    File.delete(script_path) if File.exist?(script_path)
+    FileUtils.rm_f(script_path)
   end
 
   describe '#open' do
@@ -179,7 +179,7 @@ RSpec.describe Manceps::Transport::Stdio do
     end
 
     after do
-      File.delete(notification_script_path) if File.exist?(notification_script_path)
+      FileUtils.rm_f(notification_script_path)
     end
 
     it 'skips notifications and returns the response' do
@@ -231,7 +231,7 @@ RSpec.describe Manceps::Transport::Stdio do
     end
 
     after do
-      File.delete(listen_script_path) if File.exist?(listen_script_path)
+      FileUtils.rm_f(listen_script_path)
     end
 
     it 'yields notifications until the process ends' do
@@ -251,7 +251,7 @@ RSpec.describe Manceps::Transport::Stdio do
       transport = described_class.new('ruby', args: [listen_script_path])
 
       expect do
-        transport.listen {}
+        transport.listen { nil }
       end.to raise_error(Manceps::ConnectionError, /not open/)
     end
   end

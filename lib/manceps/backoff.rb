@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # Exponential backoff calculator for retry logic.
   class Backoff
     def initialize(base: 1, max: 30, multiplier: 2, jitter: true)
       @base = base

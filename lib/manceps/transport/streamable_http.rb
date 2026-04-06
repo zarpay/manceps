@@ -5,11 +5,13 @@ require 'json'
 
 module Manceps
   module Transport
+    # Streamable HTTP transport with persistent connections and SSE support.
     class StreamableHTTP < Base
       attr_reader :session_id
       attr_writer :protocol_version
 
       def initialize(url, auth:, timeout: nil)
+        super()
         @url = url
         @auth = auth
         @session_id = nil
@@ -164,8 +166,6 @@ module Manceps
 
         error = response.error
         case error
-        when Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::EPIPE, Errno::EHOSTUNREACH
-          raise ConnectionError, error.message
         when HTTPX::TimeoutError
           raise TimeoutError, error.message
         else

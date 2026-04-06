@@ -5,8 +5,10 @@ require 'json'
 
 module Manceps
   module Transport
+    # Stdio transport: communicates with a local subprocess via stdin/stdout.
     class Stdio < Base
       def initialize(command, args: [], env: {})
+        super()
         @command = command
         @args = args
         @env = env

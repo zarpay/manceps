@@ -2,12 +2,13 @@
 
 module Manceps
   module Transport
+    # Abstract base class for MCP transports.
     class Base
       def request(body)
         raise NotImplementedError
       end
 
-      def request_streaming(body, &block)
+      def request_streaming(body, &)
         raise NotImplementedError
       end
 
@@ -23,7 +24,7 @@ module Manceps
         raise NotImplementedError
       end
 
-      def listen(&block)
+      def listen(&)
         raise NotImplementedError
       end
 

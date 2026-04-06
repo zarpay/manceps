@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 module Manceps
+  # An MCP prompt definition.
   class Prompt
     attr_reader :name, :description, :arguments, :title
 
@@ -11,6 +12,7 @@ module Manceps
       @arguments = (data['arguments'] || []).map { |a| Argument.new(a) }
     end
 
+    # A prompt argument definition.
     class Argument
       attr_reader :name, :description, :required
 

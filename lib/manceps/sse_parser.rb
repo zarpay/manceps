@@ -3,6 +3,7 @@
 require 'json'
 
 module Manceps
+  # Parser for Server-Sent Events streams.
   module SSEParser
     module_function
 

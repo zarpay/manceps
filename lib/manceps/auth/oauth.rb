@@ -8,6 +8,7 @@ require 'json'
 
 module Manceps
   module Auth
+    # OAuth 2.1 authentication with discovery, PKCE, and token refresh.
     class OAuth
       Discovery = Struct.new(
         :authorization_url,
@@ -50,20 +51,10 @@ module Manceps
       def self.discover(server_url, redirect_uri:, client_name: 'Manceps')
         server_uri = URI.parse(server_url)
         port_suffix = [80, 443].include?(server_uri.port) ? '' : ":#{server_uri.port}"
-        well_known_url = "#{server_uri.scheme}://#{server_uri.host}#{port_suffix}/.well-known/oauth-authorization-server"
+        well_known = "#{server_uri.scheme}://#{server_uri.host}#{port_suffix}/.well-known/oauth-authorization-server"
 
         http = HTTPX.with(timeout: { connect_timeout: 10, request_timeout: 30 })
-        response = http.get(well_known_url)
-        if response.status >= 400
-          raise Manceps::AuthenticationError,
-                "OAuth discovery failed (HTTP #{response.status}): #{well_known_url}"
-        end
-
-        metadata = begin
-          JSON.parse(response.body.to_s)
-        rescue JSON::ParserError
-          raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
-        end
+        metadata = fetch_json(http.get(well_known), 'OAuth discovery')
 
         discovery = Discovery.new(
           authorization_url: metadata['authorization_endpoint'],
@@ -72,42 +63,46 @@ module Manceps
           scopes: metadata['scopes_supported']
         )
 
-        # Dynamic Client Registration (RFC 7591)
-        reg_endpoint = metadata['registration_endpoint']
-        if !reg_endpoint.nil? && !reg_endpoint.empty?
-          reg_response = http.post(
-            reg_endpoint,
-            headers: { 'content-type' => 'application/json' },
-            body: JSON.generate({
-                                  client_name: client_name,
-                                  redirect_uris: [redirect_uri],
-                                  grant_types: %w[authorization_code refresh_token],
-                                  response_types: ['code'],
-                                  token_endpoint_auth_method: 'client_secret_post'
-                                })
-          )
+        register_client(http, discovery, redirect_uri, client_name)
+        discovery
+      end
 
-          if reg_response.status >= 400
-            raise Manceps::AuthenticationError,
-                  "Client registration failed (HTTP #{reg_response.status})"
-          end
+      def self.register_client(http, discovery, redirect_uri, client_name)
+        reg_endpoint = discovery.registration_endpoint
+        return if reg_endpoint.nil? || reg_endpoint.empty?
 
-          reg_data = begin
-            JSON.parse(reg_response.body.to_s)
-          rescue JSON::ParserError
-            raise Manceps::AuthenticationError,
-                  "Invalid response from server (not JSON): #{reg_response.body.to_s[0..200]}"
-          end
-          unless reg_data['client_id']
-            raise Manceps::AuthenticationError,
-                  "Client registration failed: #{reg_data['error']}"
-          end
+        reg_response = http.post(
+          reg_endpoint,
+          headers: { 'content-type' => 'application/json' },
+          body: JSON.generate({
+                                client_name: client_name,
+                                redirect_uris: [redirect_uri],
+                                grant_types: %w[authorization_code refresh_token],
+                                response_types: ['code'],
+                                token_endpoint_auth_method: 'client_secret_post'
+                              })
+        )
 
-          discovery.client_id = reg_data['client_id']
-          discovery.client_secret = reg_data['client_secret']
+        reg_data = fetch_json(reg_response, 'Client registration')
+        unless reg_data['client_id']
+          raise Manceps::AuthenticationError,
+                "Client registration failed: #{reg_data['error']}"
         end
 
-        discovery
+        discovery.client_id = reg_data['client_id']
+        discovery.client_secret = reg_data['client_secret']
+      end
+
+      def self.fetch_json(response, context)
+        if response.status >= 400
+          raise Manceps::AuthenticationError,
+                "#{context} failed (HTTP #{response.status})"
+        end
+
+        JSON.parse(response.body.to_s)
+      rescue JSON::ParserError
+        raise Manceps::AuthenticationError,
+              "#{context}: invalid response (not JSON): #{response.body.to_s[0..200]}"
       end
 
       # Build authorization URL for user redirect
@@ -145,11 +140,7 @@ module Manceps
           body: URI.encode_www_form(body)
         )
 
-        data = begin
-          JSON.parse(response.body.to_s)
-        rescue JSON::ParserError
-          raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
-        end
+        data = fetch_json(response, 'Token exchange')
         unless data['access_token']
           raise Manceps::AuthenticationError,
                 "Token exchange failed: #{data['error_description'] || data['error'] || 'no access_token'}"
@@ -173,43 +164,34 @@ module Manceps
         return unless token_expiring_soon? && @refresh_token && @token_url
 
         @mutex.synchronize do
-          # Double-check after acquiring lock — another thread may have refreshed
           return unless token_expiring_soon?
 
-          body = {
-            'grant_type' => 'refresh_token',
-            'refresh_token' => @refresh_token,
-            'client_id' => @client_id
-          }
-          body['client_secret'] = @client_secret if !@client_secret.nil? && !@client_secret.empty?
-
-          http = HTTPX.with(timeout: { connect_timeout: 10, request_timeout: 30 })
-          response = http.post(
-            @token_url,
-            headers: { 'content-type' => 'application/x-www-form-urlencoded' },
-            body: URI.encode_www_form(body)
-          )
-
-          data = begin
-            JSON.parse(response.body.to_s)
-          rescue JSON::ParserError
-            raise Manceps::AuthenticationError, "Invalid response from server (not JSON): #{response.body.to_s[0..200]}"
-          end
-          unless data['access_token']
-            raise Manceps::AuthenticationError,
-                  "Token refresh failed: #{data['error'] || 'no access_token in response'}"
-          end
-
-          @access_token = data['access_token']
-          @refresh_token = data['refresh_token'] if data['refresh_token']
-          @expires_at = data['expires_in'] ? Time.now + data['expires_in'].to_i : nil
-
-          @on_token_refresh&.call(
-            access_token: @access_token,
-            refresh_token: @refresh_token,
-            expires_at: @expires_at
-          )
+          perform_token_refresh
         end
+      end
+
+      def perform_token_refresh
+        body = { 'grant_type' => 'refresh_token', 'refresh_token' => @refresh_token, 'client_id' => @client_id }
+        body['client_secret'] = @client_secret if !@client_secret.nil? && !@client_secret.empty?
+
+        http = HTTPX.with(timeout: { connect_timeout: 10, request_timeout: 30 })
+        response = http.post(
+          @token_url,
+          headers: { 'content-type' => 'application/x-www-form-urlencoded' },
+          body: URI.encode_www_form(body)
+        )
+
+        data = self.class.fetch_json(response, 'Token refresh')
+        unless data['access_token']
+          raise Manceps::AuthenticationError,
+                "Token refresh failed: #{data['error'] || 'no access_token in response'}"
+        end
+
+        @access_token = data['access_token']
+        @refresh_token = data['refresh_token'] if data['refresh_token']
+        @expires_at = data['expires_in'] ? Time.now + data['expires_in'].to_i : nil
+
+        @on_token_refresh&.call(access_token: @access_token, refresh_token: @refresh_token, expires_at: @expires_at)
       end
 
       def token_expiring_soon?
