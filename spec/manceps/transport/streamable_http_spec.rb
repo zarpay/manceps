@@ -54,8 +54,8 @@ RSpec.describe Manceps::Transport::StreamableHTTP do
       result = transport.request({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
 
       expect(result).to be_a(Hash)
-      expect(result[:jsonrpc]).to eq('2.0')
-      expect(result[:result][:tools]).to eq([])
+      expect(result['jsonrpc']).to eq('2.0')
+      expect(result['result']['tools']).to eq([])
     end
 
     it 'captures Mcp-Session-Id from response and sends it on subsequent requests' do

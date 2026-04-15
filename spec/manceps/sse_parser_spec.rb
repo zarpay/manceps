@@ -8,7 +8,7 @@ RSpec.describe Manceps::SSEParser do
       body = "data: {\"jsonrpc\":\"2.0\",\"id\":1}\n"
 
       result = described_class.extract_json(body)
-      expect(result).to eq(jsonrpc: '2.0', id: 1)
+      expect(result).to eq('jsonrpc' => '2.0', 'id' => 1)
     end
 
     it 'joins multiple data lines' do
@@ -16,14 +16,14 @@ RSpec.describe Manceps::SSEParser do
              "data: \"id\":1}\n"
 
       result = described_class.extract_json(body)
-      expect(result).to eq(jsonrpc: '2.0', id: 1)
+      expect(result).to eq('jsonrpc' => '2.0', 'id' => 1)
     end
 
     it 'handles event/id prefixed streams by extracting only data lines' do
       body = "event: message\nid: 42\ndata: {\"ok\":true}\n"
 
       result = described_class.extract_json(body)
-      expect(result).to eq(ok: true)
+      expect(result).to eq('ok' => true)
     end
 
     it 'returns nil for empty body' do
