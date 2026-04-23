@@ -16,7 +16,7 @@ module Manceps
 
       return nil if data_lines.empty?
 
-      JSON.parse(data_lines.join, symbolize_names: true)
+      JSON.parse(data_lines.join)
     end
 
     def parse_events(body)

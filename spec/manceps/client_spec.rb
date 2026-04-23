@@ -207,6 +207,27 @@ RSpec.describe Manceps::Client do
 
       expect(client.tools).to eq([])
     end
+
+    it 'parses tools when the server responds with Content-Type: text/event-stream' do
+      tools_payload = {
+        jsonrpc: '2.0', id: 2,
+        result: { tools: [{ name: 'searchJobs', description: 'Search', inputSchema: { type: 'object' } }] }
+      }
+      stub_request(:post, url)
+        .with(body: hash_including('method' => 'tools/list'))
+        .to_return(
+          status: 200,
+          headers: { 'Content-Type' => 'text/event-stream' },
+          body: "event: message\ndata: #{JSON.generate(tools_payload)}\n\n"
+        )
+
+      client = described_class.new(url, auth: auth)
+      client.connect
+      tools = client.tools
+
+      expect(tools.length).to eq(1)
+      expect(tools.first.name).to eq('searchJobs')
+    end
   end
 
   describe '#call_tool' do
